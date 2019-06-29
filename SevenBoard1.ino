@@ -297,6 +297,8 @@ void loop() {
   }
 
   if (dbufReady) {
+    // Unfortunately, sending data to the I2C display from the DSP task results in a corrupted display :(
+    // so we need to do it from loop()
     u8g2.clearBuffer();
     for (int i = 0; i < DISPLAY_WIDTH; i++) {
       u8g2.drawLine(i, dispLines[i].y1, i, dispLines[i].y2);
