@@ -106,10 +106,11 @@ hw_timer_t * timer = NULL; // our timer
 portMUX_TYPE timerMux = portMUX_INITIALIZER_UNLOCKED; 
 TaskHandle_t dspTaskHandle;
 
+
 void IRAM_ATTR onTimer() {
+  // Reads ADC into the abuf buffer. When abuf is full, copies the data to abuf2 and flags abuf2Ready
   portENTER_CRITICAL_ISR(&timerMux);
-  int adcVal = adc1_get_voltage(currentInput->chan);
-  abuf[abufPos++] = adcVal;
+  abuf[abufPos++] = adc1_get_voltage(currentInput->chan);
   
   if (abufPos >= SAMPLES_SIZE) { 
     abufPos = 0;
@@ -118,18 +119,20 @@ void IRAM_ATTR onTimer() {
       abuf2Ready = true; 
     }
   }
-  portEXIT_CRITICAL_ISR(&timerMux); // says that we have run our critical code
+  
+  portEXIT_CRITICAL_ISR(&timerMux);
 }
 
 
 void dspTask(void *param) {
+  // Analyses ADC data read by the onTimer ISR, creates FFT and dispLines outputs
 
   while (true) {
     vTaskDelay(1);
 
     if (abuf2Ready) {
 
-      // FFT is always done
+      // FFT is always performed
       for (int i = 0; i < SAMPLES_SIZE; i++) {
         fftc->input[i] = (float)(currentInput->zeroCenter - abuf2[i]);
       }
