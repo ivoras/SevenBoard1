@@ -7,7 +7,6 @@
 #include "fft.c"
 
 U8G2_SSD1306_128X64_NONAME_F_HW_I2C u8g2(U8G2_R0, /* reset=*/ U8X8_PIN_NONE);
-
  
 #define DMIC_INPUT_PIN 34
 #define SW1_PIN 12
@@ -23,6 +22,7 @@ U8G2_SSD1306_128X64_NONAME_F_HW_I2C u8g2(U8G2_R0, /* reset=*/ U8X8_PIN_NONE);
 #define N_INPUT_CHANNELS 3
 #define N_OUTPUT_CHANNELS 5
 #define OUTPUT_CUTOFF 10
+#define OUTPUT_BOOST 2
 
 struct input_channel_t {
   adc1_channel_t  chan;
@@ -30,13 +30,13 @@ struct input_channel_t {
   int16_t         zeroCenter;
 };
 
-struct input_channel_t inputChannels[N_INPUT_CHANNELS] = {
+struct input_channel_t DRAM_ATTR inputChannels[N_INPUT_CHANNELS] = {
   { ADC1_CHANNEL_0, ADC_ATTEN_11db, 2048 },
   { ADC1_CHANNEL_3, ADC_ATTEN_11db, 2048 },
   { ADC1_CHANNEL_6, ADC_ATTEN_6db, 2700 },
 };
 
-struct input_channel_t *currentInput = &inputChannels[2];
+struct input_channel_t DRAM_ATTR *currentInput = &inputChannels[2];
 uint8_t currentInputIndex = 2;
 
 struct disp_line_t {
@@ -78,22 +78,24 @@ struct output_channel_freqs_t {
 };
 
 struct output_channel_freqs_t outputChannelFreqs[N_OUTPUT_CHANNELS] = {
-  { fslot_r: 8, fslot_g: 45, fslot_b: 60, showLines: true },
-  { fslot_r: 8, fslot_g: 45, fslot_b: 60, showLines: true },
-  { fslot_r: 8, fslot_g: 45, fslot_b: 60, showLines: true },
-  { fslot_r: 8, fslot_g: 45, fslot_b: 60, showLines: true },
-  { fslot_r: 8, fslot_g: 45, fslot_b: 60, showLines: true },
+  { fslot_r: 8, fslot_g: 45, fslot_b: 60, showLines: true, fwidth_r: 2, fwidth_g: 5, fwidth_b: 10 },
+  { fslot_r: 8, fslot_g: 45, fslot_b: 60, showLines: true, fwidth_r: 2, fwidth_g: 5, fwidth_b: 10 },
+  { fslot_r: 8, fslot_g: 45, fslot_b: 60, showLines: true, fwidth_r: 2, fwidth_g: 5, fwidth_b: 10 },
+  { fslot_r: 8, fslot_g: 45, fslot_b: 60, showLines: true, fwidth_r: 2, fwidth_g: 5, fwidth_b: 10 },
+  { fslot_r: 8, fslot_g: 45, fslot_b: 60, showLines: true, fwidth_r: 2, fwidth_g: 5, fwidth_b: 10 },
 };
 
 uint32_t lastBlink = 0;
 uint32_t sw1LastTime = 0;
 uint32_t sw2LastTime = 0;
 
-int16_t abuf[SAMPLES_SIZE];
-int16_t abuf2[SAMPLES_SIZE];
+// Used by timer ISR
+int16_t DRAM_ATTR abuf[SAMPLES_SIZE];
+int16_t DRAM_ATTR abuf2[SAMPLES_SIZE];
+int16_t volatile DRAM_ATTR abufPos = 0;
+volatile bool DRAM_ATTR abuf2Ready = false;
+
 int16_t fftBuf[DISPLAY_WIDTH];
-int16_t abufPos = 0;
-volatile bool abuf2Ready = false;
 volatile bool dbufReady = false;
 volatile uint32_t dspCount = 0;
 volatile uint32_t oldDspCount = 0; // used to detect transition into new dsp result in loop()
@@ -105,8 +107,8 @@ portMUX_TYPE timerMux = portMUX_INITIALIZER_UNLOCKED;
 TaskHandle_t dspTaskHandle;
 
 void IRAM_ATTR onTimer() {
-  portENTER_CRITICAL_ISR(&timerMux); // says that we want to run critical code and don't want to be interrupted
-  int adcVal = adc1_get_voltage(currentInput->chan); // reads the ADC ADC1_CHANNEL_6
+  portENTER_CRITICAL_ISR(&timerMux);
+  int adcVal = adc1_get_voltage(currentInput->chan);
   abuf[abufPos++] = adcVal;
   
   if (abufPos >= SAMPLES_SIZE) { 
@@ -211,7 +213,9 @@ void setup() {
     adc1_config_channel_atten(inputChannels[i].chan, inputChannels[i].atten);
   }
   
-  timer = timerBegin(0, 80, true); // 80 Prescaler
+  setupWiFi();
+  
+  timer = timerBegin(3, 80, true); // 80 Prescaler
   timerAttachInterrupt(timer, &onTimer, true); // binds the handling function to our timer 
   timerAlarmWrite(timer, 45, true);
   timerAlarmEnable(timer);
@@ -222,15 +226,49 @@ void setup() {
   Serial.println("setup over");
 }
 
-inline int16_t bottomClamp(int16_t x, int16_t xmin) {
-  if (x > xmin) {
-    return x;
+inline int16_t fromRawValue(int16_t x) {
+  if (x > OUTPUT_CUTOFF) {
+    return x * OUTPUT_BOOST;
   }
   return 0;
 }
 
+int16_t getRedOutput(int16_t i) {
+  int16_t count = 0;
+  int16_t sum = 0;
+  for (int16_t j = max(0, outputChannelFreqs[i].fslot_r - outputChannelFreqs[i].fwidth_r); j < min(outputChannelFreqs[i].fslot_r + outputChannelFreqs[i].fwidth_r, DISPLAY_WIDTH-1); j++) {
+    sum += fromRawValue(fftBuf[j]);
+    count++;
+  }
+  return sum / count;
+}
+
+
+int16_t getGreenOutput(int16_t i) {
+  int16_t count = 0;
+  int16_t sum = 0;
+  for (int16_t j = max(0, outputChannelFreqs[i].fslot_g - outputChannelFreqs[i].fwidth_g); j < min(outputChannelFreqs[i].fslot_g + outputChannelFreqs[i].fwidth_g, DISPLAY_WIDTH-1); j++) {
+    sum += fromRawValue(fftBuf[j]);
+    count++;
+  }
+  return sum / count;
+}
+
+
+int16_t getBlueOutput(int16_t i) {
+  int16_t count = 0;
+  int16_t sum = 0;
+  for (int16_t j = max(0, outputChannelFreqs[i].fslot_b - outputChannelFreqs[i].fwidth_b); j < min(outputChannelFreqs[i].fslot_b + outputChannelFreqs[i].fwidth_b, DISPLAY_WIDTH-1); j++) {
+    sum += fromRawValue(fftBuf[j]);
+    count++;
+  }
+  return sum / count;
+}
+
 
 void loop() {
+  webserverTasks();
+  
   if (millis() - lastBlink > 1000) {
     blinkOn = !blinkOn;
     digitalWrite(2, blinkOn ? HIGH : LOW);
@@ -291,10 +329,9 @@ void loop() {
 
   if (dspCount != oldDspCount) {
     for (int i = 0; i < N_OUTPUT_CHANNELS; i++) {
-      //Serial.println( abs((int)(fftc->output[1 + outputChannelFreqs[i].fslot_r * 2]/80)) );
-      ledcWrite(outputChannelPins[i].chan_r, bottomClamp(fftBuf[outputChannelFreqs[i].fslot_r], OUTPUT_CUTOFF));
-      ledcWrite(outputChannelPins[i].chan_g, bottomClamp(fftBuf[outputChannelFreqs[i].fslot_g], OUTPUT_CUTOFF));
-      ledcWrite(outputChannelPins[i].chan_b, bottomClamp(fftBuf[outputChannelFreqs[i].fslot_b], OUTPUT_CUTOFF));
+      ledcWrite(outputChannelPins[i].chan_r, getRedOutput(i));
+      ledcWrite(outputChannelPins[i].chan_g, getGreenOutput(i));
+      ledcWrite(outputChannelPins[i].chan_b, getBlueOutput(i));
     }
     oldDspCount = dspCount;
   }
