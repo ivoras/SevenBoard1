@@ -54,7 +54,7 @@ void setupWiFi() {
   });
 
   web.on("/outputs", HTTP_GET, [](AsyncWebServerRequest *req) {
-    Serial.println("Got request for /getfreqs");
+    Serial.println("GET /outputs");
     StaticJsonDocument<1024> jsonDoc;
     JsonObject root = jsonDoc.to<JsonObject>();
     
@@ -78,11 +78,44 @@ void setupWiFi() {
     serializeJson(jsonDoc, *resp);
     req->send(resp);
   });
-/*
-  web.on("/outputs", HTTP_POST, [](AsyncWebServerRequest *req, uint8_t *data, size_t len, size_t index, size_t total) {
+
+  web.on("/outputs", HTTP_POST, [](AsyncWebServerRequest *req) {
+    Serial.println("POST /outputs (req)");
+  }, 
+  NULL, 
+  [](AsyncWebServerRequest *request, uint8_t *data, size_t len, size_t index, size_t total){
+    Serial.println("POST /outputs (body)");
+    if (index + len != total) {
+      Serial.println("/outputs body handler got partial data?");
+      return;
+    }
+    Serial.print("RAW JSON: ");
+    Serial.println((char*)data);
     
+    StaticJsonDocument<1024> jsonDoc;
+    auto error = deserializeJson(jsonDoc, data);
+    if (error) {
+      Serial.print("deserializeJson() failed: ");
+      Serial.println(error.c_str());
+      return;
+    }
+    
+    JsonArray outputs = jsonDoc["outputs"];
+    for (int n = 0; n < outputs.size(); n++) {
+      int i = outputs[n]["i"];
+      outputChannelFreqs[i].fslot_r = outputs[n]["fslot_r"];
+      outputChannelFreqs[i].fslot_g = outputs[n]["fslot_g"];
+      outputChannelFreqs[i].fslot_b = outputs[n]["fslot_b"];
+
+      outputChannelFreqs[i].fwidth_r = outputs[n]["fwidth_r"];
+      outputChannelFreqs[i].fwidth_g = outputs[n]["fwidth_g"];
+      outputChannelFreqs[i].fwidth_b = outputs[n]["fwidth_b"];
+
+      outputChannelFreqs[i].showLines = outputs[n]["show_lines"];
+    }
+    dumpOutputChannels();
   });
-*/
+
   webServerSetup = true;
   web.begin();
   Serial.println("Web server started");

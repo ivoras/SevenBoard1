@@ -34,8 +34,9 @@ const char *index_html =
         "</tr>"
       "</tbody>"
     "</table>"
+    "<p><strong>R, G, B</strong> are frequency channels, ranging from 0-127. <strong>Rw, Gb, Bw</strong> are frequency band widths, ranging from 0-15.</p>"
     "<p>System uptime: <span data-bind='text: upMinutes'>x</span> minutes.</p>"
-    "<a class='button is-primary' onclick='saveOutputs'>Save</a>"
+    "<a class='button is-primary' onclick='saveOutputs()'>Save</a>"
   "</section>"
 
   "<script>"

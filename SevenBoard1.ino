@@ -101,6 +101,9 @@ int16_t fftBuf[DISPLAY_WIDTH];
 volatile bool dbufReady = false;
 volatile uint32_t dspCount = 0;
 volatile uint32_t oldDspCount = 0; // used to detect transition into new dsp result in loop()
+volatile uint32_t loopCount = 0;
+volatile uint32_t outputUpdateCount = 0;
+uint32_t oldFreeHeap = 0;
 
 fft_config_t *fftc;
 
@@ -133,9 +136,12 @@ void adcTask(void *param) {
       abufPos = 0;
       if (!abuf2Ready) {
         memcpy(abuf2, abuf, sizeof(abuf2)); 
-        abuf2Ready = true; 
+        abuf2Ready = true;
+        xTaskNotify(dspTaskHandle, 0, eIncrement);
       }
     }
+
+    
   }
 }
 
@@ -144,7 +150,7 @@ void dspTask(void *param) {
   // Analyses ADC data read by the onTimer ISR, creates FFT and dispLines outputs
 
   while (true) {
-    vTaskDelay(1);
+    uint32_t tval = ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(1000));
 
     if (abuf2Ready) {
       // FFT is always performed
@@ -184,15 +190,104 @@ void dspTask(void *param) {
       abuf2Ready = false;
 
       dspCount++;
+      updateOutputs();
     }
   }
 }
 
+inline int16_t fromRawValue(int16_t x) {
+  if (x > OUTPUT_CUTOFF) {
+    return x * OUTPUT_BOOST;
+  }
+  return 0;
+}
+
+int16_t getRedOutput(int16_t i) {
+  int16_t count = 1;
+  int16_t sum = 0;
+  for (int16_t j = max(0, outputChannelFreqs[i].fslot_r - outputChannelFreqs[i].fwidth_r); j < min(outputChannelFreqs[i].fslot_r + outputChannelFreqs[i].fwidth_r, DISPLAY_WIDTH-1); j++) {
+    sum += fromRawValue(fftBuf[j]);
+    count++;
+  }
+  return sum / count;
+}
+
+
+int16_t getGreenOutput(int16_t i) {
+  int16_t count = 1;
+  int16_t sum = 0;
+  for (int16_t j = max(0, outputChannelFreqs[i].fslot_g - outputChannelFreqs[i].fwidth_g); j < min(outputChannelFreqs[i].fslot_g + outputChannelFreqs[i].fwidth_g, DISPLAY_WIDTH-1); j++) {
+    sum += fromRawValue(fftBuf[j]);
+    count++;
+  }
+  return sum / count;
+}
+
+
+int16_t getBlueOutput(int16_t i) {
+  int16_t count = 1;
+  int16_t sum = 0;
+  for (int16_t j = max(0, outputChannelFreqs[i].fslot_b - outputChannelFreqs[i].fwidth_b); j < min(outputChannelFreqs[i].fslot_b + outputChannelFreqs[i].fwidth_b, DISPLAY_WIDTH-1); j++) {
+    sum += fromRawValue(fftBuf[j]);
+    count++;
+  }
+  return sum / count;
+}
+
+void drawDisplay() {
+    // Unfortunately, sending data to the I2C display from the DSP task results in a corrupted display :(
+    // so we need to do it from loop()
+    u8g2.clearBuffer();
+    for (int i = 0; i < DISPLAY_WIDTH; i++) {
+      u8g2.drawLine(i, dispLines[i].y1, i, dispLines[i].y2);
+    }
+    //u8g2.setDrawColor(2);
+    if (displayMode == DISPLAY_FFT) {
+      for (int i = 0; i < N_OUTPUT_CHANNELS; i++) {
+        if (!outputChannelFreqs[i].showLines) {
+          continue;
+        }
+        u8g2.drawVLine(outputChannelFreqs[i].fslot_r, 0, DISPLAY_HEIGHT-1);
+        u8g2.drawVLine(outputChannelFreqs[i].fslot_g, 0, DISPLAY_HEIGHT-1);
+        u8g2.drawVLine(outputChannelFreqs[i].fslot_b, 0, DISPLAY_HEIGHT-1);
+      }
+      u8g2.drawHLine(0, DISPLAY_HEIGHT-1-OUTPUT_CUTOFF, DISPLAY_WIDTH);
+    }
+    //u8g2.setDrawColor(1);
+    if (millis() - startMillis > 1000) {
+      char buf[20];
+      sprintf(buf, "%d FPS, %d DPS", frameCount / ((millis() - startMillis) / 1000), dspCount / ((millis() - startMillis) / 1000));
+      u8g2.drawStr(0, 15, buf);
+      sprintf(buf, "IN: %d, %d UPS", currentInputIndex, outputUpdateCount / ((millis() - startMillis) / 1000));
+      u8g2.drawStr(0, 30, buf);
+    }
+    
+    u8g2.sendBuffer();
+    frameCount++;
+}
+
+void updateOutputs() {
+  outputUpdateCount++;
+  for (int i = 0; i < N_OUTPUT_CHANNELS; i++) {
+    ledcWrite(outputChannelPins[i].chan_r, getRedOutput(i));
+    ledcWrite(outputChannelPins[i].chan_g, getGreenOutput(i));
+    ledcWrite(outputChannelPins[i].chan_b, getBlueOutput(i));
+  }
+}
+
+
 void setup() {
   Serial.begin(9600);
-  Serial.print("System version ");
-  Serial.println(SYSTEM_VERSION);
   Serial.println("Starting setup");
+  Serial.print("System version: ");
+  Serial.print(SYSTEM_VERSION);
+  Serial.print(", chip version: ");
+  Serial.print(ESP.getChipRevision());
+  Serial.print(", CPU frequency: ");
+  Serial.print(ESP.getCpuFreqMHz());
+  Serial.print(" MHz, firmware signature: ");
+  Serial.println(ESP.getSketchMD5());
+  
   Wire.setClock(400000);
 
   fftc = fft_init(SAMPLES_SIZE, FFT_REAL, FFT_FORWARD, NULL, NULL);
@@ -233,7 +328,7 @@ void setup() {
     adc1_config_channel_atten(inputChannels[i].chan, inputChannels[i].atten);
   }
   
-  //setupWiFi();
+  setupWiFi();
 
   Serial.println("1");
   xTaskCreate(dspTask, "DSP Task", 8192, NULL, 1, &dspTaskHandle);
@@ -247,48 +342,8 @@ void setup() {
   timerAlarmEnable(timer);
   Serial.println("4");
 
-
   startMillis = lastBlink = millis();
   Serial.println("setup over");
-}
-
-inline int16_t fromRawValue(int16_t x) {
-  if (x > OUTPUT_CUTOFF) {
-    return x * OUTPUT_BOOST;
-  }
-  return 0;
-}
-
-int16_t getRedOutput(int16_t i) {
-  int16_t count = 0;
-  int16_t sum = 0;
-  for (int16_t j = max(0, outputChannelFreqs[i].fslot_r - outputChannelFreqs[i].fwidth_r); j < min(outputChannelFreqs[i].fslot_r + outputChannelFreqs[i].fwidth_r, DISPLAY_WIDTH-1); j++) {
-    sum += fromRawValue(fftBuf[j]);
-    count++;
-  }
-  return sum / count;
-}
-
-
-int16_t getGreenOutput(int16_t i) {
-  int16_t count = 0;
-  int16_t sum = 0;
-  for (int16_t j = max(0, outputChannelFreqs[i].fslot_g - outputChannelFreqs[i].fwidth_g); j < min(outputChannelFreqs[i].fslot_g + outputChannelFreqs[i].fwidth_g, DISPLAY_WIDTH-1); j++) {
-    sum += fromRawValue(fftBuf[j]);
-    count++;
-  }
-  return sum / count;
-}
-
-
-int16_t getBlueOutput(int16_t i) {
-  int16_t count = 0;
-  int16_t sum = 0;
-  for (int16_t j = max(0, outputChannelFreqs[i].fslot_b - outputChannelFreqs[i].fwidth_b); j < min(outputChannelFreqs[i].fslot_b + outputChannelFreqs[i].fwidth_b, DISPLAY_WIDTH-1); j++) {
-    sum += fromRawValue(fftBuf[j]);
-    count++;
-  }
-  return sum / count;
 }
 
 
@@ -299,6 +354,13 @@ void loop() {
     blinkOn = !blinkOn;
     digitalWrite(2, blinkOn ? HIGH : LOW);
     lastBlink = millis();
+
+    if (ESP.getFreeHeap() != oldFreeHeap) {
+      Serial.print("Memory available: ");
+      Serial.print(ESP.getFreeHeap());
+      Serial.println(" bytes.");
+      oldFreeHeap = ESP.getFreeHeap();
+    }
   }
 
   if (digitalRead(SW1_PIN) == LOW && millis() - sw1LastTime > 500) {
@@ -323,45 +385,9 @@ void loop() {
   }
 
   if (dbufReady) {
-    // Unfortunately, sending data to the I2C display from the DSP task results in a corrupted display :(
-    // so we need to do it from loop()
-    u8g2.clearBuffer();
-    for (int i = 0; i < DISPLAY_WIDTH; i++) {
-      u8g2.drawLine(i, dispLines[i].y1, i, dispLines[i].y2);
-    }
-    //u8g2.setDrawColor(2);
-    if (displayMode == DISPLAY_FFT) {
-      for (int i = 0; i < N_OUTPUT_CHANNELS; i++) {
-        if (!outputChannelFreqs[i].showLines) {
-          continue;
-        }
-        u8g2.drawVLine(outputChannelFreqs[i].fslot_r, 0, DISPLAY_HEIGHT-1);
-        u8g2.drawVLine(outputChannelFreqs[i].fslot_g, 0, DISPLAY_HEIGHT-1);
-        u8g2.drawVLine(outputChannelFreqs[i].fslot_b, 0, DISPLAY_HEIGHT-1);
-      }
-      u8g2.drawHLine(0, DISPLAY_HEIGHT-1-OUTPUT_CUTOFF, DISPLAY_WIDTH);
-    }
-    //u8g2.setDrawColor(1);
-    if (millis() - startMillis > 1000) {
-      char buf[20];
-      sprintf(buf, "%d FPS, %d DPS", frameCount / ((millis() - startMillis) / 1000), dspCount / ((millis() - startMillis) / 1000));
-      u8g2.drawStr(0, 15, buf);
-      sprintf(buf, "IN: %d", currentInputIndex);
-      u8g2.drawStr(0, 30, buf);
-    }
-    
-    u8g2.sendBuffer();
+    drawDisplay();
     dbufReady = false;
-    frameCount++;
   }
 
-  if (dspCount != oldDspCount) {
-    for (int i = 0; i < N_OUTPUT_CHANNELS; i++) {
-      ledcWrite(outputChannelPins[i].chan_r, getRedOutput(i));
-      ledcWrite(outputChannelPins[i].chan_g, getGreenOutput(i));
-      ledcWrite(outputChannelPins[i].chan_b, getBlueOutput(i));
-    }
-    oldDspCount = dspCount;
-  }
-
+  loopCount++;
 }
