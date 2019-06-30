@@ -6,6 +6,8 @@
 #include "fft.h"
 #include "fft.c"
 
+const String SYSTEM_VERSION = "1.0";
+
 U8G2_SSD1306_128X64_NONAME_F_HW_I2C u8g2(U8G2_R0, /* reset=*/ U8X8_PIN_NONE);
  
 #define DMIC_INPUT_PIN 34
@@ -79,10 +81,10 @@ struct output_channel_freqs_t {
 
 struct output_channel_freqs_t outputChannelFreqs[N_OUTPUT_CHANNELS] = {
   { fslot_r: 8, fslot_g: 45, fslot_b: 60, showLines: true, fwidth_r: 2, fwidth_g: 5, fwidth_b: 10 },
-  { fslot_r: 8, fslot_g: 45, fslot_b: 60, showLines: true, fwidth_r: 2, fwidth_g: 5, fwidth_b: 10 },
-  { fslot_r: 8, fslot_g: 45, fslot_b: 60, showLines: true, fwidth_r: 2, fwidth_g: 5, fwidth_b: 10 },
-  { fslot_r: 8, fslot_g: 45, fslot_b: 60, showLines: true, fwidth_r: 2, fwidth_g: 5, fwidth_b: 10 },
-  { fslot_r: 8, fslot_g: 45, fslot_b: 60, showLines: true, fwidth_r: 2, fwidth_g: 5, fwidth_b: 10 },
+  { fslot_r: 8, fslot_g: 45, fslot_b: 60, showLines: false, fwidth_r: 2, fwidth_g: 5, fwidth_b: 10 },
+  { fslot_r: 8, fslot_g: 45, fslot_b: 60, showLines: false, fwidth_r: 2, fwidth_g: 5, fwidth_b: 10 },
+  { fslot_r: 8, fslot_g: 45, fslot_b: 60, showLines: false, fwidth_r: 2, fwidth_g: 5, fwidth_b: 10 },
+  { fslot_r: 8, fslot_g: 45, fslot_b: 60, showLines: false, fwidth_r: 2, fwidth_g: 5, fwidth_b: 10 },
 };
 
 uint32_t lastBlink = 0;
@@ -103,7 +105,7 @@ volatile uint32_t oldDspCount = 0; // used to detect transition into new dsp res
 fft_config_t *fftc;
 
 hw_timer_t * timer = NULL; // our timer
-portMUX_TYPE timerMux = portMUX_INITIALIZER_UNLOCKED; 
+portMUX_TYPE DRAM_ATTR timerMux = portMUX_INITIALIZER_UNLOCKED; 
 TaskHandle_t dspTaskHandle;
 
 
@@ -175,7 +177,9 @@ void dspTask(void *param) {
 
 void setup() {
   Serial.begin(9600);
-  Serial.println("starting setup");
+  Serial.print("System version ");
+  Serial.println(SYSTEM_VERSION);
+  Serial.println("Starting setup");
   Wire.setClock(400000);
 
   fftc = fft_init(SAMPLES_SIZE, FFT_REAL, FFT_FORWARD, NULL, NULL);
