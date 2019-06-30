@@ -114,34 +114,40 @@ TaskHandle_t adcTaskHandle;
 
 
 void IRAM_ATTR onTimer() {
-  //portENTER_CRITICAL_ISR(&timerMux);
+  // Fills abuf with ADC readings. The abuf is FFT-sized (e.g. 512 samples), and when it gets full,
+  // the adcTask is notified to take over.
+  portENTER_CRITICAL_ISR(&timerMux);
+
+  abuf[abufPos++] = adc1_get_voltage(currentInput->chan);
   
-  BaseType_t xHigherPriorityTaskWoken = pdFALSE;
-  vTaskNotifyGiveFromISR(adcTaskHandle, &xHigherPriorityTaskWoken);
-  if (xHigherPriorityTaskWoken) {
-    portYIELD_FROM_ISR();
+  if (abufPos >= SAMPLES_SIZE) { 
+    abufPos = 0;
+
+    // Notify adcTask that the buffer is full.
+    BaseType_t xHigherPriorityTaskWoken = pdFALSE;
+    vTaskNotifyGiveFromISR(adcTaskHandle, &xHigherPriorityTaskWoken);
+    if (xHigherPriorityTaskWoken) {
+      portYIELD_FROM_ISR();
+    }
+    
   }
-  //portEXIT_CRITICAL_ISR(&timerMux);
+  
+  portEXIT_CRITICAL_ISR(&timerMux);
 }
 
 void adcTask(void *param) {
-  // Reads ADC into the abuf buffer. When abuf is full, copies the data to abuf2 and flags abuf2Ready
-
+  // Probably overkill: double-buffers abuf into abuf2 and notifies dspTask to analyse it.
+  // Can probably be merged with dspTask, except maybe the difference in ulTaskNotify(pdFALSE...)
   while (true) {
 
     uint32_t tcount = ulTaskNotifyTake(pdFALSE, pdMS_TO_TICKS(1000));
-    abuf[abufPos++] = adc1_get_voltage(currentInput->chan);
+    // We got a signal that abuf is full
     
-    if (abufPos >= SAMPLES_SIZE) { 
-      abufPos = 0;
-      if (!abuf2Ready) {
-        memcpy(abuf2, abuf, sizeof(abuf2)); 
-        abuf2Ready = true;
-        xTaskNotify(dspTaskHandle, 0, eIncrement);
-      }
+    if (!abuf2Ready) {
+      memcpy(abuf2, abuf, sizeof(abuf2)); 
+      abuf2Ready = true;
+      xTaskNotify(dspTaskHandle, 0, eIncrement);
     }
-
-    
   }
 }
 
@@ -203,9 +209,9 @@ inline int16_t fromRawValue(int16_t x) {
 }
 
 int16_t getRedOutput(int16_t i) {
-  int16_t count = 1;
+  int16_t count = 0;
   int16_t sum = 0;
-  for (int16_t j = max(0, outputChannelFreqs[i].fslot_r - outputChannelFreqs[i].fwidth_r); j < min(outputChannelFreqs[i].fslot_r + outputChannelFreqs[i].fwidth_r, DISPLAY_WIDTH-1); j++) {
+  for (int16_t j = max(0, outputChannelFreqs[i].fslot_r - outputChannelFreqs[i].fwidth_r); j <= min(outputChannelFreqs[i].fslot_r + outputChannelFreqs[i].fwidth_r, DISPLAY_WIDTH-1); j++) {
     sum += fromRawValue(fftBuf[j]);
     count++;
   }
@@ -214,9 +220,9 @@ int16_t getRedOutput(int16_t i) {
 
 
 int16_t getGreenOutput(int16_t i) {
-  int16_t count = 1;
+  int16_t count = 0;
   int16_t sum = 0;
-  for (int16_t j = max(0, outputChannelFreqs[i].fslot_g - outputChannelFreqs[i].fwidth_g); j < min(outputChannelFreqs[i].fslot_g + outputChannelFreqs[i].fwidth_g, DISPLAY_WIDTH-1); j++) {
+  for (int16_t j = max(0, outputChannelFreqs[i].fslot_g - outputChannelFreqs[i].fwidth_g); j <= min(outputChannelFreqs[i].fslot_g + outputChannelFreqs[i].fwidth_g, DISPLAY_WIDTH-1); j++) {
     sum += fromRawValue(fftBuf[j]);
     count++;
   }
@@ -225,9 +231,9 @@ int16_t getGreenOutput(int16_t i) {
 
 
 int16_t getBlueOutput(int16_t i) {
-  int16_t count = 1;
+  int16_t count = 0;
   int16_t sum = 0;
-  for (int16_t j = max(0, outputChannelFreqs[i].fslot_b - outputChannelFreqs[i].fwidth_b); j < min(outputChannelFreqs[i].fslot_b + outputChannelFreqs[i].fwidth_b, DISPLAY_WIDTH-1); j++) {
+  for (int16_t j = max(0, outputChannelFreqs[i].fslot_b - outputChannelFreqs[i].fwidth_b); j <= min(outputChannelFreqs[i].fslot_b + outputChannelFreqs[i].fwidth_b, DISPLAY_WIDTH-1); j++) {
     sum += fromRawValue(fftBuf[j]);
     count++;
   }
