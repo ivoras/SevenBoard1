@@ -10,6 +10,7 @@ const char* wifiPassword = "grillaj0";
 AsyncWebServer web(80);
 IPAddress apIP(10, 10, 10, 1);
 DNSServer apDNSServer;
+bool webServerSetup = false;
 
 String indexTplProcessor(const String& var) {
   if (var == "SYSTEM_VERSION")
@@ -82,11 +83,14 @@ void setupWiFi() {
     
   });
 */
+  webServerSetup = true;
   web.begin();
   Serial.println("Web server started");
 }
 
 void webserverTasks() {
+  if (!webServerSetup)
+    return;
   apDNSServer.processNextRequest();
 
   

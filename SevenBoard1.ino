@@ -107,22 +107,36 @@ fft_config_t *fftc;
 hw_timer_t * timer = NULL; // our timer
 portMUX_TYPE DRAM_ATTR timerMux = portMUX_INITIALIZER_UNLOCKED; 
 TaskHandle_t dspTaskHandle;
+TaskHandle_t adcTaskHandle;
 
 
 void IRAM_ATTR onTimer() {
-  // Reads ADC into the abuf buffer. When abuf is full, copies the data to abuf2 and flags abuf2Ready
-  portENTER_CRITICAL_ISR(&timerMux);
-  abuf[abufPos++] = adc1_get_voltage(currentInput->chan);
+  //portENTER_CRITICAL_ISR(&timerMux);
   
-  if (abufPos >= SAMPLES_SIZE) { 
-    abufPos = 0;
-    if (!abuf2Ready) {
-      memcpy(abuf2, abuf, sizeof(abuf2)); 
-      abuf2Ready = true; 
+  BaseType_t xHigherPriorityTaskWoken = pdFALSE;
+  vTaskNotifyGiveFromISR(adcTaskHandle, &xHigherPriorityTaskWoken);
+  if (xHigherPriorityTaskWoken) {
+    portYIELD_FROM_ISR();
+  }
+  //portEXIT_CRITICAL_ISR(&timerMux);
+}
+
+void adcTask(void *param) {
+  // Reads ADC into the abuf buffer. When abuf is full, copies the data to abuf2 and flags abuf2Ready
+
+  while (true) {
+
+    uint32_t tcount = ulTaskNotifyTake(pdFALSE, pdMS_TO_TICKS(1000));
+    abuf[abufPos++] = adc1_get_voltage(currentInput->chan);
+    
+    if (abufPos >= SAMPLES_SIZE) { 
+      abufPos = 0;
+      if (!abuf2Ready) {
+        memcpy(abuf2, abuf, sizeof(abuf2)); 
+        abuf2Ready = true; 
+      }
     }
   }
-  
-  portEXIT_CRITICAL_ISR(&timerMux);
 }
 
 
@@ -133,7 +147,6 @@ void dspTask(void *param) {
     vTaskDelay(1);
 
     if (abuf2Ready) {
-
       // FFT is always performed
       for (int i = 0; i < SAMPLES_SIZE; i++) {
         fftc->input[i] = (float)(currentInput->zeroCenter - abuf2[i]);
@@ -220,14 +233,20 @@ void setup() {
     adc1_config_channel_atten(inputChannels[i].chan, inputChannels[i].atten);
   }
   
-  setupWiFi();
-  
+  //setupWiFi();
+
+  Serial.println("1");
+  xTaskCreate(dspTask, "DSP Task", 8192, NULL, 1, &dspTaskHandle);
+  Serial.println("2");
+  xTaskCreate(adcTask, "ADC Task", 8192, NULL, 1, &adcTaskHandle);
+
+  Serial.println("3");
   timer = timerBegin(3, 80, true); // 80 Prescaler
   timerAttachInterrupt(timer, &onTimer, true); // binds the handling function to our timer 
   timerAlarmWrite(timer, 45, true);
   timerAlarmEnable(timer);
+  Serial.println("4");
 
-  xTaskCreate(dspTask, "DSP Task", 8192, NULL, 1, &dspTaskHandle);
 
   startMillis = lastBlink = millis();
   Serial.println("setup over");
