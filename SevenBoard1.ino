@@ -1,5 +1,7 @@
 #include <Arduino.h>
+#include <ArduinoJson.h>
 #include <U8g2lib.h>
+#include <SPIFFS.h>
 #include <Wire.h>
 #include <driver/adc.h>
 
@@ -21,10 +23,15 @@ U8G2_SSD1306_128X64_NONAME_F_HW_I2C u8g2(U8G2_R0, /* reset=*/ U8X8_PIN_NONE);
 #define SAMPLES_PER_LINE (SAMPLES_SIZE / DISPLAY_WIDTH)
 #define DISPLAY_WAVE 1
 #define DISPLAY_FFT 2
+
 #define N_INPUT_CHANNELS 3
 #define N_OUTPUT_CHANNELS 5
+
 #define OUTPUT_CUTOFF 10
 #define OUTPUT_BOOST 2
+
+#define CHAN_MODE_STATIC 0
+#define CHAN_MODE_FFT 1
 
 struct input_channel_t {
   adc1_channel_t  chan;
@@ -69,22 +76,26 @@ struct output_channel_pins_t outputChannelPins[N_OUTPUT_CHANNELS] = {
   { pin_r: 15, pin_g: 2,  pin_b: 23 },
 };
 
-struct output_channel_freqs_t {
-  uint16_t fslot_r;
-  uint16_t fslot_g;
-  uint16_t fslot_b;
+struct output_channel_config_t {
+  uint8_t chan_mode;
+  uint8_t fslot_r;
+  uint8_t fslot_g;
+  uint8_t fslot_b;
   bool showLines;
   uint8_t fwidth_r;
   uint8_t fwidth_g;
   uint8_t fwidth_b;
+  uint8_t static_r;
+  uint8_t static_g;
+  uint8_t static_b;
 };
 
-struct output_channel_freqs_t outputChannelFreqs[N_OUTPUT_CHANNELS] = {
-  { fslot_r: 8, fslot_g: 45, fslot_b: 60, showLines: true, fwidth_r: 2, fwidth_g: 5, fwidth_b: 10 },
-  { fslot_r: 8, fslot_g: 45, fslot_b: 60, showLines: false, fwidth_r: 2, fwidth_g: 5, fwidth_b: 10 },
-  { fslot_r: 8, fslot_g: 45, fslot_b: 60, showLines: false, fwidth_r: 2, fwidth_g: 5, fwidth_b: 10 },
-  { fslot_r: 8, fslot_g: 45, fslot_b: 60, showLines: false, fwidth_r: 2, fwidth_g: 5, fwidth_b: 10 },
-  { fslot_r: 8, fslot_g: 45, fslot_b: 60, showLines: false, fwidth_r: 2, fwidth_g: 5, fwidth_b: 10 },
+struct output_channel_config_t outputChannelConfigs[N_OUTPUT_CHANNELS] = {
+  { chan_mode: CHAN_MODE_FFT, fslot_r: 8, fslot_g: 45, fslot_b: 60, showLines: true, fwidth_r: 2, fwidth_g: 5, fwidth_b: 10 },
+  { chan_mode: CHAN_MODE_FFT, fslot_r: 8, fslot_g: 45, fslot_b: 60, showLines: false, fwidth_r: 2, fwidth_g: 5, fwidth_b: 10 },
+  { chan_mode: CHAN_MODE_FFT, fslot_r: 8, fslot_g: 45, fslot_b: 60, showLines: false, fwidth_r: 2, fwidth_g: 5, fwidth_b: 10 },
+  { chan_mode: CHAN_MODE_FFT, fslot_r: 8, fslot_g: 45, fslot_b: 60, showLines: false, fwidth_r: 2, fwidth_g: 5, fwidth_b: 10 },
+  { chan_mode: CHAN_MODE_FFT, fslot_r: 8, fslot_g: 45, fslot_b: 60, showLines: false, fwidth_r: 2, fwidth_g: 5, fwidth_b: 10 },
 };
 
 uint32_t lastBlink = 0;
@@ -104,10 +115,12 @@ volatile uint32_t oldDspCount = 0; // used to detect transition into new dsp res
 volatile uint32_t loopCount = 0;
 volatile uint32_t outputUpdateCount = 0;
 uint32_t oldFreeHeap = 0;
+bool spiffsAvailable = false;
+bool displayAvailable = false;
 
 fft_config_t *fftc;
 
-hw_timer_t * timer = NULL; // our timer
+hw_timer_t * adcTimer = NULL; // our timer
 portMUX_TYPE DRAM_ATTR timerMux = portMUX_INITIALIZER_UNLOCKED; 
 TaskHandle_t dspTaskHandle;
 TaskHandle_t adcTaskHandle;
@@ -129,7 +142,6 @@ void IRAM_ATTR onTimer() {
     if (xHigherPriorityTaskWoken) {
       portYIELD_FROM_ISR();
     }
-    
   }
   
   portEXIT_CRITICAL_ISR(&timerMux);
@@ -211,7 +223,7 @@ inline int16_t fromRawValue(int16_t x) {
 int16_t getRedOutput(int16_t i) {
   int16_t count = 0;
   int16_t sum = 0;
-  for (int16_t j = max(0, outputChannelFreqs[i].fslot_r - outputChannelFreqs[i].fwidth_r); j <= min(outputChannelFreqs[i].fslot_r + outputChannelFreqs[i].fwidth_r, DISPLAY_WIDTH-1); j++) {
+  for (int16_t j = max(0, outputChannelConfigs[i].fslot_r - outputChannelConfigs[i].fwidth_r); j <= min(outputChannelConfigs[i].fslot_r + outputChannelConfigs[i].fwidth_r, DISPLAY_WIDTH-1); j++) {
     sum += fromRawValue(fftBuf[j]);
     count++;
   }
@@ -222,7 +234,7 @@ int16_t getRedOutput(int16_t i) {
 int16_t getGreenOutput(int16_t i) {
   int16_t count = 0;
   int16_t sum = 0;
-  for (int16_t j = max(0, outputChannelFreqs[i].fslot_g - outputChannelFreqs[i].fwidth_g); j <= min(outputChannelFreqs[i].fslot_g + outputChannelFreqs[i].fwidth_g, DISPLAY_WIDTH-1); j++) {
+  for (int16_t j = max(0, outputChannelConfigs[i].fslot_g - outputChannelConfigs[i].fwidth_g); j <= min(outputChannelConfigs[i].fslot_g + outputChannelConfigs[i].fwidth_g, DISPLAY_WIDTH-1); j++) {
     sum += fromRawValue(fftBuf[j]);
     count++;
   }
@@ -233,7 +245,7 @@ int16_t getGreenOutput(int16_t i) {
 int16_t getBlueOutput(int16_t i) {
   int16_t count = 0;
   int16_t sum = 0;
-  for (int16_t j = max(0, outputChannelFreqs[i].fslot_b - outputChannelFreqs[i].fwidth_b); j <= min(outputChannelFreqs[i].fslot_b + outputChannelFreqs[i].fwidth_b, DISPLAY_WIDTH-1); j++) {
+  for (int16_t j = max(0, outputChannelConfigs[i].fslot_b - outputChannelConfigs[i].fwidth_b); j <= min(outputChannelConfigs[i].fslot_b + outputChannelConfigs[i].fwidth_b, DISPLAY_WIDTH-1); j++) {
     sum += fromRawValue(fftBuf[j]);
     count++;
   }
@@ -241,35 +253,37 @@ int16_t getBlueOutput(int16_t i) {
 }
 
 void drawDisplay() {
-    // Unfortunately, sending data to the I2C display from the DSP task results in a corrupted display :(
-    // so we need to do it from loop()
-    u8g2.clearBuffer();
-    for (int i = 0; i < DISPLAY_WIDTH; i++) {
-      u8g2.drawLine(i, dispLines[i].y1, i, dispLines[i].y2);
-    }
-    //u8g2.setDrawColor(2);
-    if (displayMode == DISPLAY_FFT) {
-      for (int i = 0; i < N_OUTPUT_CHANNELS; i++) {
-        if (!outputChannelFreqs[i].showLines) {
-          continue;
-        }
-        u8g2.drawVLine(outputChannelFreqs[i].fslot_r, 0, DISPLAY_HEIGHT-1);
-        u8g2.drawVLine(outputChannelFreqs[i].fslot_g, 0, DISPLAY_HEIGHT-1);
-        u8g2.drawVLine(outputChannelFreqs[i].fslot_b, 0, DISPLAY_HEIGHT-1);
+  if (!displayAvailable)
+    return;
+  // Unfortunately, sending data to the I2C display from the DSP task results in a corrupted display :(
+  // so we need to do it from loop()
+  u8g2.clearBuffer();
+  for (int i = 0; i < DISPLAY_WIDTH; i++) {
+    u8g2.drawLine(i, dispLines[i].y1, i, dispLines[i].y2);
+  }
+  //u8g2.setDrawColor(2);
+  if (displayMode == DISPLAY_FFT) {
+    for (int i = 0; i < N_OUTPUT_CHANNELS; i++) {
+      if (!outputChannelConfigs[i].showLines) {
+        continue;
       }
-      u8g2.drawHLine(0, DISPLAY_HEIGHT-1-OUTPUT_CUTOFF, DISPLAY_WIDTH);
+      u8g2.drawVLine(outputChannelConfigs[i].fslot_r, 0, DISPLAY_HEIGHT-1);
+      u8g2.drawVLine(outputChannelConfigs[i].fslot_g, 0, DISPLAY_HEIGHT-1);
+      u8g2.drawVLine(outputChannelConfigs[i].fslot_b, 0, DISPLAY_HEIGHT-1);
     }
-    //u8g2.setDrawColor(1);
-    if (millis() - startMillis > 1000) {
-      char buf[20];
-      sprintf(buf, "%d FPS, %d DPS", frameCount / ((millis() - startMillis) / 1000), dspCount / ((millis() - startMillis) / 1000));
-      u8g2.drawStr(0, 15, buf);
-      sprintf(buf, "IN: %d, %d UPS", currentInputIndex, outputUpdateCount / ((millis() - startMillis) / 1000));
-      u8g2.drawStr(0, 30, buf);
-    }
-    
-    u8g2.sendBuffer();
-    frameCount++;
+    u8g2.drawHLine(0, DISPLAY_HEIGHT-1-OUTPUT_CUTOFF, DISPLAY_WIDTH);
+  }
+  //u8g2.setDrawColor(1);
+  if (millis() - startMillis > 1000) {
+    char buf[20];
+    sprintf(buf, "%d FPS, %d DPS", frameCount / ((millis() - startMillis) / 1000), dspCount / ((millis() - startMillis) / 1000));
+    u8g2.drawStr(0, 15, buf);
+    sprintf(buf, "IN: %d, %d UPS", currentInputIndex, outputUpdateCount / ((millis() - startMillis) / 1000));
+    u8g2.drawStr(0, 30, buf);
+  }
+  
+  u8g2.sendBuffer();
+  frameCount++;
 }
 
 void updateOutputs() {
@@ -295,13 +309,22 @@ void setup() {
   Serial.println(ESP.getSketchMD5());
   
   Wire.setClock(400000);
+  
+  if(!SPIFFS.begin(true)){
+    Serial.println("An Error has occurred while mounting SPIFFS");
+    spiffsAvailable = false;
+  } else {
+    spiffsAvailable = true;
+  }
 
   fftc = fft_init(SAMPLES_SIZE, FFT_REAL, FFT_FORWARD, NULL, NULL);
   
-  u8g2.begin();
-  u8g2.setFont(u8g2_font_t0_16b_mf);
-  //u8g2.setFontMode(1);
-  u8g2.clearBuffer();
+  if (u8g2.begin()) {
+    u8g2.setFont(u8g2_font_t0_16b_mf);
+    //u8g2.setFontMode(1);
+    u8g2.clearBuffer();
+    displayAvailable = true;
+  }
 
   pinMode(DMIC_INPUT_PIN, INPUT);
   pinMode(2, OUTPUT);
@@ -335,6 +358,7 @@ void setup() {
   }
   
   setupWiFi();
+  loadOutputChannels();
 
   Serial.println("1");
   xTaskCreate(dspTask, "DSP Task", 8192, NULL, 1, &dspTaskHandle);
@@ -342,10 +366,10 @@ void setup() {
   xTaskCreate(adcTask, "ADC Task", 8192, NULL, 1, &adcTaskHandle);
 
   Serial.println("3");
-  timer = timerBegin(3, 80, true); // 80 Prescaler
-  timerAttachInterrupt(timer, &onTimer, true); // binds the handling function to our timer 
-  timerAlarmWrite(timer, 45, true);
-  timerAlarmEnable(timer);
+  adcTimer = timerBegin(3, 80, true); // 80 Prescaler
+  timerAttachInterrupt(adcTimer, &onTimer, true); // binds the handling function to our timer 
+  timerAlarmWrite(adcTimer, 45, true);
+  timerAlarmEnable(adcTimer);
   Serial.println("4");
 
   startMillis = lastBlink = millis();

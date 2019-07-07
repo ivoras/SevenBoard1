@@ -55,30 +55,19 @@ void setupWiFi() {
 
   web.on("/outputs", HTTP_GET, [](AsyncWebServerRequest *req) {
     Serial.println("GET /outputs");
-    StaticJsonDocument<1024> jsonDoc;
+    StaticJsonDocument<2048> jsonDoc;
     JsonObject root = jsonDoc.to<JsonObject>();
     
     root["millis"] = millis();
     root["sysVersion"] = SYSTEM_VERSION;
-
-    JsonArray outputs = root.createNestedArray("outputs");
-    for (int i = 0; i < N_OUTPUT_CHANNELS; i++) {
-      JsonObject output = outputs.createNestedObject();
-      output["i"] = i;
-      output["fslot_r"] = outputChannelFreqs[i].fslot_r;
-      output["fslot_g"] = outputChannelFreqs[i].fslot_g;
-      output["fslot_b"] = outputChannelFreqs[i].fslot_b;
-      output["fwidth_r"] = outputChannelFreqs[i].fwidth_r;
-      output["fwidth_g"] = outputChannelFreqs[i].fwidth_g;
-      output["fwidth_b"] = outputChannelFreqs[i].fwidth_b;
-      output["show_lines"] = outputChannelFreqs[i].showLines;
-    }
+    serializeOutputChannels(root);
     
     AsyncResponseStream *resp = req->beginResponseStream("application/json");
     serializeJson(jsonDoc, *resp);
     req->send(resp);
   });
 
+  // Saves outputs configuration
   web.on("/outputs", HTTP_POST, [](AsyncWebServerRequest *req) {
     Serial.println("POST /outputs (req)");
   }, 
@@ -89,31 +78,19 @@ void setupWiFi() {
       Serial.println("/outputs body handler got partial data?");
       return;
     }
-    Serial.print("RAW JSON: ");
-    Serial.println((char*)data);
+    //Serial.print("RAW JSON: ");
+    //Serial.println((char*)data);
     
-    StaticJsonDocument<1024> jsonDoc;
+    StaticJsonDocument<2048> jsonDoc;
     auto error = deserializeJson(jsonDoc, data);
     if (error) {
       Serial.print("deserializeJson() failed: ");
       Serial.println(error.c_str());
       return;
     }
-    
-    JsonArray outputs = jsonDoc["outputs"];
-    for (int n = 0; n < outputs.size(); n++) {
-      int i = outputs[n]["i"];
-      outputChannelFreqs[i].fslot_r = outputs[n]["fslot_r"];
-      outputChannelFreqs[i].fslot_g = outputs[n]["fslot_g"];
-      outputChannelFreqs[i].fslot_b = outputs[n]["fslot_b"];
 
-      outputChannelFreqs[i].fwidth_r = outputs[n]["fwidth_r"];
-      outputChannelFreqs[i].fwidth_g = outputs[n]["fwidth_g"];
-      outputChannelFreqs[i].fwidth_b = outputs[n]["fwidth_b"];
-
-      outputChannelFreqs[i].showLines = outputs[n]["show_lines"];
-    }
-    dumpOutputChannels();
+    deserializeOutputChannels(jsonDoc, outputChannelConfigs);
+    saveOutputChannels();
   });
 
   webServerSetup = true;
