@@ -36,6 +36,18 @@ void setupWiFi() {
 
   web.on("/", HTTP_GET, [](AsyncWebServerRequest *req) {
     Serial.println("Got request for index.html");
+    if (req->hasHeader("Host")) {
+      AsyncWebHeader *h = req->getHeader("Host");
+      if (h->value() != WiFi.softAPIP().toString()) {
+        Serial.println(String("Host: ") + h->value());
+        AsyncWebServerResponse *resp = req->beginResponse(302);
+        String loc = String("http://") + WiFi.softAPIP().toString() + String("/");
+        resp->addHeader("Location", loc);
+        req->send(resp);
+        Serial.println(String("Redirected to ") + loc);
+        return;
+      }
+    }
     req->send_P(200, "text/html", index_html, indexTplProcessor);
   });
 
