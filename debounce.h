@@ -16,6 +16,7 @@ public:
   int8_t stable_what;
   uint32_t stable_time;
   uint32_t last_stable_time;
+  bool ignore_next_event;
 
   DebounceButton(int pin) {
     this->pin = pin;
@@ -23,6 +24,7 @@ public:
     this->stable_what = DEBOUNCE_INVALID;
     this->stable_time = this->last_stable_time = millis();
     this->stable_checked = 0;
+    this->ignore_next_event = false;
   }
 
   bool update() {
@@ -30,7 +32,6 @@ public:
     bool is_switch = false;
     
     if (cur_state != this->stable_state) {
-      Serial.println(cur_state == HIGH ? "H" : "L");
       if (millis() - this->stable_time >= DEBOUNCE_MILLIS) {
         // recognize this as a button press
         if (cur_state == LOW) {
@@ -41,7 +42,12 @@ public:
         this->last_stable_time = this->stable_time;
         this->stable_time = millis();
         this->stable_state = cur_state;
-        this->stable_checked = false;
+        if (!ignore_next_event) {
+          this->stable_checked = false;
+        } else {
+          this->stable_checked = true;
+          this->ignore_next_event = false;
+        }
         is_switch = true;
       }
     }
@@ -59,6 +65,18 @@ public:
     return false;
   }
 
+  bool pressed_for(uint32_t ms) {
+    if (this->stable_checked || this->stable_state != LOW) {
+      return false;
+    }
+    if (millis() - this->stable_time >= ms) {
+      this->stable_checked = true;
+      this->ignore_next_event = true; // don't register the depress for a long press
+      return true;
+    }
+    return false;
+  }
+
   void handled() {
     this->stable_checked = true;
   }
@@ -68,9 +86,6 @@ public:
       return -1;
     }
     this->stable_checked = true;
-    Serial.print("yup, depressed, len=");
-    Serial.println(millis()-this->last_stable_time);
-    
     return 1 + millis() - this->last_stable_time;
   }
 

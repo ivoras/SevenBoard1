@@ -385,16 +385,16 @@ void handleButtons() {
     }
   }
 
-  int btnSwitchPressedTime = btnSwitch.check_depressed();
-
-  if (btnSwitchPressedTime >= 2000) {
-    Serial.println("btnSwitch long-depressed");
+  if (btnSwitch.pressed_for(1000)) {
+    Serial.println("btnSwitch long-pressed");
     currentInputIndex++;
     if (currentInputIndex >= N_INPUT_CHANNELS) {
       currentInputIndex = 0;
     }
     currentInput = &inputChannels[currentInputIndex];
-  } else if (btnSwitchPressedTime > 0) {
+  } 
+  
+  if (btnSwitch.check_depressed() > 0) {
     Serial.println("btnSwitch short-depressed");
     switch (displayMode) {
       case DISPLAY_WAVE:
