@@ -4,9 +4,6 @@
 #include "DNSServer.h"
 #include <ArduinoJson.h>
 
-const char* wifiSSID = "SEVENBOARD1";
-const char* wifiPassword = "grillaj0";
-
 AsyncWebServer web(80);
 IPAddress apIP(10, 10, 10, 1);
 DNSServer apDNSServer;
@@ -113,7 +110,10 @@ void setupWiFi() {
 void webserverTasks() {
   if (!webServerSetup)
     return;
-  apDNSServer.processNextRequest();
+  apDNSServer.processNextRequest(); 
+}
 
-  
+void disableWiFi() {
+  Serial.println("Turning WiFi off");
+  WiFi.mode(WIFI_OFF);
 }

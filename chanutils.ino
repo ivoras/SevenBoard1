@@ -78,8 +78,8 @@ void loadOutputChannels() {
     timerStop(adcTimer);
   }
 
-  File f = SPIFFS.open(OUTPUT_CHANNELS_SAVE_FILE, FILE_READ);
-  if (f) {
+  if (SPIFFS.exists(OUTPUT_CHANNELS_SAVE_FILE)) {
+    File f = SPIFFS.open(OUTPUT_CHANNELS_SAVE_FILE, FILE_READ);
     StaticJsonDocument<2048> jsonDoc;
     auto error = deserializeJson(jsonDoc, f);
     if (!error) {
