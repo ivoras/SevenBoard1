@@ -54,6 +54,20 @@ void setupWiFi() {
     resp->addHeader("Content-Encoding", "gzip");
     req->send(resp);
   });
+  
+  web.on("/bulma-slider.min.js", HTTP_GET, [](AsyncWebServerRequest *req) {
+    Serial.println("Got request for bulma-slider.min.js");
+    AsyncWebServerResponse *resp = req->beginResponse_P(200, "application/javascript", bulma_slider_min_js_gz, bulma_slider_min_js_gz_len);
+    resp->addHeader("Content-Encoding", "gzip");
+    req->send(resp);
+  });
+
+  web.on("/bulma-slider.min.css", HTTP_GET, [](AsyncWebServerRequest *req) {
+    Serial.println("Got request for bulma-slider.min.css");
+    AsyncWebServerResponse *resp = req->beginResponse_P(200, "text/css", bulma_slider_min_css_gz, bulma_slider_min_css_gz_len);
+    resp->addHeader("Content-Encoding", "gzip");
+    req->send(resp);
+  });
 
   web.on("/knockout.js", HTTP_GET, [](AsyncWebServerRequest *req) {
     Serial.println("Got request for knockout.js");
@@ -62,6 +76,7 @@ void setupWiFi() {
     req->send(resp);
   });
 
+
   web.on("/outputs", HTTP_GET, [](AsyncWebServerRequest *req) {
     Serial.println("GET /outputs");
     StaticJsonDocument<2048> jsonDoc;
@@ -69,6 +84,9 @@ void setupWiFi() {
     
     root["millis"] = millis();
     root["sysVersion"] = SYSTEM_VERSION;
+    root["inputBoost"] = inputBoost;
+    root["outputDampen"] = outputDampen;
+    root["outputCutoff"] = outputCutoff;
     serializeOutputChannels(root);
     
     AsyncResponseStream *resp = req->beginResponseStream("application/json");
@@ -99,7 +117,14 @@ void setupWiFi() {
     }
 
     deserializeOutputChannels(jsonDoc, outputChannelConfigs);
-    saveOutputChannels();
+
+    inputBoost = jsonDoc["inputBoost"];
+    outputDampen = jsonDoc["outputDampen"];
+    outputCutoff = jsonDoc["outputCutoff"];
+    
+    saveChannelConfig();
+    configModeMessage = "** Saved! **";
+    configModeMessageTime = millis();
   });
 
   webServerSetup = true;

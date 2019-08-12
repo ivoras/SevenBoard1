@@ -1,15 +1,24 @@
+/*
+ * TODO:
+ *     - configurable INPUT_BOOST & outputDampen
+ *     - configurable history filter of outputs
+ *     - HTML sliders for RGB
+ *     - HSL?
+ */
+
 #include <Arduino.h>
 #include <ArduinoJson.h>
 #include <U8g2lib.h>
 #include <SPIFFS.h>
 #include <Wire.h>
 #include <driver/adc.h>
+#include <FastLED.h>
 
 #include "fft.h"
 #include "fft.c"
 #include "debounce.h"
 
-const String SYSTEM_VERSION = "1.1";
+const String SYSTEM_VERSION = "1.1.2";
 
 const char* wifiSSID = "SEVENBOARD1";
 const char* wifiPassword = "grillaj0";
@@ -33,11 +42,10 @@ U8G2_SSD1306_128X64_NONAME_F_HW_I2C u8g2(U8G2_R0, /* reset=*/ U8X8_PIN_NONE);
 #define N_INPUT_CHANNELS 2
 #define N_OUTPUT_CHANNELS 5
 
-#define OUTPUT_CUTOFF 10
-#define INPUT_BOOST 2
-
 #define CHAN_MODE_STATIC 0
-#define CHAN_MODE_FFT 1
+#define CHAN_MODE_FFT_RGB 1
+#define CHAN_MODE_FFT_HSV 2
+
 #define CHAN_HISTORY_SIZE 4
 
 struct input_channel_t {
@@ -62,6 +70,8 @@ struct disp_line_t {
 bool blinkOn = false;
 uint8_t displayMode = DISPLAY_FFT;
 bool configMode = false;
+String configModeMessage = "";
+uint32_t configModeMessageTime = 0;
 struct disp_line_t dispLines[DISPLAY_WIDTH];
 uint32_t frameCount = 0;
 uint32_t startMillis;
@@ -96,17 +106,21 @@ struct output_channel_config_t {
   uint8_t fwidth_r;
   uint8_t fwidth_g;
   uint8_t fwidth_b;
+  bool historyFilter;
   uint8_t static_r;
   uint8_t static_g;
   uint8_t static_b;
+  uint8_t hsv_h;
+  uint8_t hsv_s;
+  uint8_t hsv_v;
 };
 
 struct output_channel_config_t outputChannelConfigs[N_OUTPUT_CHANNELS] = {
-  { chan_mode: CHAN_MODE_FFT, fslot_r: 6, fslot_g: 45, fslot_b: 60, showLines: true, fwidth_r: 2, fwidth_g: 5, fwidth_b: 10 },
-  { chan_mode: CHAN_MODE_FFT, fslot_r: 6, fslot_g: 45, fslot_b: 60, showLines: false, fwidth_r: 2, fwidth_g: 5, fwidth_b: 10 },
-  { chan_mode: CHAN_MODE_FFT, fslot_r: 6, fslot_g: 45, fslot_b: 60, showLines: false, fwidth_r: 2, fwidth_g: 5, fwidth_b: 10 },
-  { chan_mode: CHAN_MODE_FFT, fslot_r: 6, fslot_g: 45, fslot_b: 60, showLines: false, fwidth_r: 2, fwidth_g: 5, fwidth_b: 10 },
-  { chan_mode: CHAN_MODE_FFT, fslot_r: 6, fslot_g: 45, fslot_b: 60, showLines: false, fwidth_r: 2, fwidth_g: 5, fwidth_b: 10 },
+  { chan_mode: CHAN_MODE_FFT_RGB, fslot_r: 6, fslot_g: 45, fslot_b: 60, showLines: true, fwidth_r: 2, fwidth_g: 5, fwidth_b: 10 },
+  { chan_mode: CHAN_MODE_FFT_RGB, fslot_r: 6, fslot_g: 45, fslot_b: 60, showLines: false, fwidth_r: 2, fwidth_g: 5, fwidth_b: 10 },
+  { chan_mode: CHAN_MODE_FFT_RGB, fslot_r: 6, fslot_g: 45, fslot_b: 60, showLines: false, fwidth_r: 2, fwidth_g: 5, fwidth_b: 10 },
+  { chan_mode: CHAN_MODE_FFT_RGB, fslot_r: 6, fslot_g: 45, fslot_b: 60, showLines: false, fwidth_r: 2, fwidth_g: 5, fwidth_b: 10 },
+  { chan_mode: CHAN_MODE_FFT_RGB, fslot_r: 6, fslot_g: 45, fslot_b: 60, showLines: false, fwidth_r: 2, fwidth_g: 5, fwidth_b: 10 },
 };
 
 uint32_t lastBlink = 0;
@@ -128,6 +142,10 @@ volatile uint32_t outputUpdateCount = 0;
 uint32_t oldFreeHeap = 0;
 bool spiffsAvailable = false;
 bool displayAvailable = false;
+
+uint32_t inputBoost = 2;
+uint32_t outputDampen = 16;
+uint32_t outputCutoff = 10;
 
 fft_config_t *fftc;
 
@@ -227,9 +245,9 @@ void dspTask(void *param) {
 }
 
 // ============================================================================================================================== fromRawValue()
-inline int16_t fromRawValue(int16_t x) {
-  if (x > OUTPUT_CUTOFF) {
-    return x * INPUT_BOOST;
+inline int32_t fromRawValue(int16_t x) {
+  if (x > outputCutoff) {
+    return int32_t(x) * inputBoost;
   }
   return 0;
 }
@@ -243,7 +261,7 @@ int16_t getRedOutput(int16_t i) {
     count++;
   }
   int32_t v = sum / count;
-  return (v*v)/16;
+  return (v*v)/outputDampen;
 }
 
 
@@ -256,7 +274,7 @@ int16_t getGreenOutput(int16_t i) {
     count++;
   }
   int32_t v = sum / count;
-  return (v*v)/16;
+  return (v*v)/outputDampen;
 }
 
 
@@ -269,7 +287,7 @@ int16_t getBlueOutput(int16_t i) {
     count++;
   }
   int32_t v = sum / count;
-  return (v*v)/16;
+  return (v*v)/outputDampen;
 }
 
 // ============================================================================================================================== drawDisplay()
@@ -284,6 +302,13 @@ void drawDisplay() {
     u8g2.drawStr(0, 10, "WiFi config enabled");
     u8g2.drawStr(0, 20, wifiSSID);
     u8g2.drawStr(0, 30, wifiPassword);
+
+    if (configModeMessage != String("")) {
+      u8g2.drawStr(0, 50, configModeMessage.c_str());
+      if (millis() - configModeMessageTime > 2000) {
+        configModeMessage = "";
+      }
+    }
     u8g2.sendBuffer();
     frameCount++;
     return;
@@ -303,7 +328,7 @@ void drawDisplay() {
         u8g2.drawVLine(outputChannelConfigs[i].fslot_g, 0, DISPLAY_HEIGHT-1);
         u8g2.drawVLine(outputChannelConfigs[i].fslot_b, 0, DISPLAY_HEIGHT-1);
       }
-      u8g2.drawHLine(0, DISPLAY_HEIGHT-1-OUTPUT_CUTOFF, DISPLAY_WIDTH);
+      u8g2.drawHLine(0, DISPLAY_HEIGHT-1-outputCutoff, DISPLAY_WIDTH);
     }
   } else if (displayMode == DISPLAY_OUTPUTS) {
     const int bar_width = DISPLAY_WIDTH / (N_OUTPUT_CHANNELS * 4) - 1;
@@ -472,7 +497,7 @@ void setup() {
   }
   
   //setupWiFi();
-  loadOutputChannels();
+  loadChannelConfig();
 
   Serial.println("1");
   xTaskCreate(dspTask, "DSP Task", 8192, NULL, 1, &dspTaskHandle);
@@ -495,7 +520,7 @@ void setup() {
 void loop() {
   webserverTasks();
   
-  if (millis() - lastBlink > 1000) {
+  if (millis() - lastBlink > (!configMode ? 1000 : 200)) {
     blinkOn = !blinkOn;
     digitalWrite(2, blinkOn ? HIGH : LOW);
     lastBlink = millis();

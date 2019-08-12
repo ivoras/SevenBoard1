@@ -26,6 +26,7 @@ void serializeOutputChannels(JsonObject &root) {
     output["fslot_r"] = outputChannelConfigs[i].fslot_r;
     output["fslot_g"] = outputChannelConfigs[i].fslot_g;
     output["fslot_b"] = outputChannelConfigs[i].fslot_b;
+    
     output["fwidth_r"] = outputChannelConfigs[i].fwidth_r;
     output["fwidth_g"] = outputChannelConfigs[i].fwidth_g;
     output["fwidth_b"] = outputChannelConfigs[i].fwidth_b;
@@ -54,7 +55,7 @@ void deserializeOutputChannels(JsonDocument &doc, struct output_channel_config_t
   }
 }
 
-void saveOutputChannels() {
+void saveChannelConfig() {
   timerStop(adcTimer);
 
   File f = SPIFFS.open(OUTPUT_CHANNELS_SAVE_FILE, FILE_WRITE);
@@ -63,6 +64,9 @@ void saveOutputChannels() {
   JsonObject root = jsonDoc.to<JsonObject>();
   
   root["sysVersion"] = SYSTEM_VERSION;
+  root["inputBoost"] = inputBoost;
+  root["outputDampen"] = outputDampen;
+  root["outputCutoff"] = outputCutoff;
   serializeOutputChannels(root);
   
   serializeJson(jsonDoc, f);
@@ -72,7 +76,7 @@ void saveOutputChannels() {
   timerStart(adcTimer);
 }
 
-void loadOutputChannels() {
+void loadChannelConfig() {
   bool timerActive = (adcTimer != NULL) && timerStarted(adcTimer);
   if (timerActive) {
     timerStop(adcTimer);
@@ -83,7 +87,16 @@ void loadOutputChannels() {
     StaticJsonDocument<2048> jsonDoc;
     auto error = deserializeJson(jsonDoc, f);
     if (!error) {
-      deserializeOutputChannels(jsonDoc, outputChannelConfigs);
+      String sysVersion = jsonDoc["sysVersion"];
+      if (sysVersion == String(SYSTEM_VERSION)) {
+        deserializeOutputChannels(jsonDoc, outputChannelConfigs);
+        inputBoost = jsonDoc["inputBoost"];
+        outputDampen = jsonDoc["outputDampen"];
+        outputCutoff = jsonDoc["outputCutoff"];
+      } else {
+        Serial.println(String("loadOutputChannels() sysVersion mismatch. Got: ") + sysVersion + String(", expecting: ") + String(SYSTEM_VERSION));
+        Serial.println("Not loading saved parameters, falling back to defaults.");
+      }
     } else {
       Serial.print("loadOutputChannels() deserializeJson() failed: ");
       Serial.println(error.c_str());
