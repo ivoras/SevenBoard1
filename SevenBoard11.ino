@@ -102,25 +102,26 @@ struct output_channel_config_t {
   uint8_t fslot_r;
   uint8_t fslot_g;
   uint8_t fslot_b;
-  bool showLines;
+  bool show_lines;
   uint8_t fwidth_r;
   uint8_t fwidth_g;
   uint8_t fwidth_b;
-  bool historyFilter;
+  bool history_filter;
   uint8_t static_r;
   uint8_t static_g;
   uint8_t static_b;
   uint8_t hsv_h;
   uint8_t hsv_s;
   uint8_t hsv_v;
+  uint8_t hsv_freq;
 };
 
 struct output_channel_config_t outputChannelConfigs[N_OUTPUT_CHANNELS] = {
-  { chan_mode: CHAN_MODE_FFT_RGB, fslot_r: 6, fslot_g: 45, fslot_b: 60, showLines: true, fwidth_r: 2, fwidth_g: 5, fwidth_b: 10 },
-  { chan_mode: CHAN_MODE_FFT_RGB, fslot_r: 6, fslot_g: 45, fslot_b: 60, showLines: false, fwidth_r: 2, fwidth_g: 5, fwidth_b: 10 },
-  { chan_mode: CHAN_MODE_FFT_RGB, fslot_r: 6, fslot_g: 45, fslot_b: 60, showLines: false, fwidth_r: 2, fwidth_g: 5, fwidth_b: 10 },
-  { chan_mode: CHAN_MODE_FFT_RGB, fslot_r: 6, fslot_g: 45, fslot_b: 60, showLines: false, fwidth_r: 2, fwidth_g: 5, fwidth_b: 10 },
-  { chan_mode: CHAN_MODE_FFT_RGB, fslot_r: 6, fslot_g: 45, fslot_b: 60, showLines: false, fwidth_r: 2, fwidth_g: 5, fwidth_b: 10 },
+  { chan_mode: CHAN_MODE_FFT_RGB, fslot_r: 6, fslot_g: 45, fslot_b: 60, show_lines: true,  fwidth_r: 2, fwidth_g: 5, fwidth_b: 10 },
+  { chan_mode: CHAN_MODE_FFT_RGB, fslot_r: 6, fslot_g: 45, fslot_b: 60, show_lines: false, fwidth_r: 2, fwidth_g: 5, fwidth_b: 10 },
+  { chan_mode: CHAN_MODE_FFT_RGB, fslot_r: 6, fslot_g: 45, fslot_b: 60, show_lines: false, fwidth_r: 2, fwidth_g: 5, fwidth_b: 10 },
+  { chan_mode: CHAN_MODE_FFT_RGB, fslot_r: 6, fslot_g: 45, fslot_b: 60, show_lines: false, fwidth_r: 2, fwidth_g: 5, fwidth_b: 10 },
+  { chan_mode: CHAN_MODE_FFT_RGB, fslot_r: 6, fslot_g: 45, fslot_b: 60, show_lines: false, fwidth_r: 2, fwidth_g: 5, fwidth_b: 10 },
 };
 
 uint32_t lastBlink = 0;
@@ -304,7 +305,7 @@ void drawDisplay() {
     u8g2.drawStr(0, 30, wifiPassword);
 
     if (configModeMessage != String("")) {
-      u8g2.drawStr(0, 50, configModeMessage.c_str());
+      u8g2.drawStr(0, 60, configModeMessage.c_str());
       if (millis() - configModeMessageTime > 2000) {
         configModeMessage = "";
       }
@@ -321,7 +322,7 @@ void drawDisplay() {
     //u8g2.setDrawColor(2);
     if (displayMode == DISPLAY_FFT) {
       for (int i = 0; i < N_OUTPUT_CHANNELS; i++) {
-        if (!outputChannelConfigs[i].showLines) {
+        if (!outputChannelConfigs[i].show_lines) {
           continue;
         }
         u8g2.drawVLine(outputChannelConfigs[i].fslot_r, 0, DISPLAY_HEIGHT-1);

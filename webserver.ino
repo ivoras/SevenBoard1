@@ -75,6 +75,13 @@ void setupWiFi() {
     resp->addHeader("Content-Encoding", "gzip");
     req->send(resp);
   });
+  
+  web.on("/knockout.mapping.js", HTTP_GET, [](AsyncWebServerRequest *req) {
+    Serial.println("Got request for knockout.mapping.js");
+    AsyncWebServerResponse *resp = req->beginResponse_P(200, "application/javascript", knockout_mapping_latest_js_gz, knockout_mapping_latest_js_gz_len);
+    resp->addHeader("Content-Encoding", "gzip");
+    req->send(resp);
+  });
 
 
   web.on("/outputs", HTTP_GET, [](AsyncWebServerRequest *req) {
