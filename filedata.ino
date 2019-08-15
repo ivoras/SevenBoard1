@@ -33,10 +33,10 @@ const char *index_html =
 
   "<div data-bind='foreach: outputs()'>\n"
 
-    "<h1 style='width: 100%; background: silver'>Channel <span data-bind='text: ($index() + 1)'></span></h1>"
+    "<h1 class='title' style='background: silver'>Channel <span data-bind='text: ($index() + 1)'></span></h1>"
     
     "<div>"
-      "<label><input type='radio' value='0' data-bind=\"checked: chan_mode, attr: { name: 'ch' + $index() }\"> Static RGB <span data-bind='text: chan_mode'></span></label><br>"
+      "<label><input type='radio' value='0' data-bind=\"checked: chan_mode, attr: { name: 'ch' + $index() }\"> Static RGB</label><br>"
       "<div style='margin-left: 2em'>"
         "<span style='display: inline-block; width: 4em'>R: <span data-bind='text: static_r'></span></span><input type='range' style='width: 20em' step='1' min='0' max='255' data-bind='value: static_r'/><br>"
         "<span style='display: inline-block; width: 4em'>G: <span data-bind='text: static_g'></span></span><input type='range' style='width: 20em' step='1' min='0' max='255' data-bind='value: static_g'/><br>"
@@ -45,7 +45,7 @@ const char *index_html =
     "</div>\n"
 
     "<div>"
-      "<label><input type='radio' value='2' data-bind=\"checked: chan_mode, attr: { name: 'ch' + $index() }\"> Dynamic HSV <span data-bind='text: chan_mode'></span></label><br>"
+      "<label><input type='radio' value='2' data-bind=\"checked: chan_mode, attr: { name: 'ch' + $index() }\"> Dynamic HSV</label><br>"
       "<div style='margin-left: 2em'>"
         "<span style='display: inline-block; width: 4em'>H: <span data-bind='text: hsv_h'></span></span><input type='range' style='width: 20em' step='1' min='0' max='255' data-bind='value: hsv_h'/><br>"
         "<span style='display: inline-block; width: 4em'>S: <span data-bind='text: hsv_s'></span></span><input type='range' style='width: 20em' step='1' min='0' max='255' data-bind='value: hsv_s'/><br>"
@@ -54,9 +54,10 @@ const char *index_html =
     "</div>\n"
 
     "<div>"
-      "<label><input type='radio' value='1' data-bind=\"checked: chan_mode, attr: { name: 'ch' + $index() }\"> Frequency-based RGB <span data-bind='text: chan_mode'></span></label><br>"
+      "<label><input type='radio' value='1' data-bind=\"checked: chan_mode, attr: { name: 'ch' + $index() }\"> Frequency-based RGB</label><br>"
     "</div>\n"
 
+  "<hr>"
   "</div>\n"
 
 /*  

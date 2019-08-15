@@ -1,6 +1,5 @@
 /*
  * TODO:
- *     - configurable INPUT_BOOST & outputDampen
  *     - configurable history filter of outputs
  *     - HTML sliders for RGB
  *     - HSL?
@@ -12,6 +11,8 @@
 #include <SPIFFS.h>
 #include <Wire.h>
 #include <driver/adc.h>
+#include <soc/sens_reg.h>
+#include <soc/sens_struct.h>
 #include <FastLED.h>
 
 #include "fft.h"
@@ -23,16 +24,18 @@ const String SYSTEM_VERSION = "1.1.2";
 const char* wifiSSID = "SEVENBOARD1";
 const char* wifiPassword = "grillaj0";
 
+#define OLED_I2C_ADDRESS 0x3c
+
 U8G2_SSD1306_128X64_NONAME_F_HW_I2C u8g2(U8G2_R0, /* reset=*/ U8X8_PIN_NONE);
  
 #define PIN_SW1 35
 #define PIN_SW2 39
 
-#define SAMPLES_SIZE 512
+#define ADC_SAMPLES_COUNT 512
 
 #define DISPLAY_WIDTH 128
 #define DISPLAY_HEIGHT 64
-#define SAMPLES_PER_LINE (SAMPLES_SIZE / DISPLAY_WIDTH)
+#define SAMPLES_PER_LINE (ADC_SAMPLES_COUNT / DISPLAY_WIDTH)
 
 #define N_DISPLAY_MODES 3
 #define DISPLAY_WAVE 1
@@ -129,8 +132,8 @@ DebounceButton btnConfig(PIN_SW1);
 DebounceButton btnSwitch(PIN_SW2);
 
 // Used by timer ISR
-int16_t DRAM_ATTR abuf[SAMPLES_SIZE];
-int16_t DRAM_ATTR abuf2[SAMPLES_SIZE];
+int16_t DRAM_ATTR abuf[ADC_SAMPLES_COUNT];
+int16_t DRAM_ATTR abuf2[ADC_SAMPLES_COUNT];
 int16_t volatile DRAM_ATTR abufPos = 0;
 volatile bool DRAM_ATTR abuf2Ready = false;
 
@@ -156,15 +159,29 @@ TaskHandle_t dspTaskHandle;
 TaskHandle_t adcTaskHandle;
 
 
+// Adapted from the ESP32 IDF SDK's adc_concert() so that it's fixed in IRAM
+int IRAM_ATTR local_adc1_read(int channel) {
+    uint16_t adc_value;
+    SENS.sar_meas_start1.sar1_en_pad = (1 << channel); //only one channel is selected.
+    while (SENS.sar_slave_addr1.meas_status != 0);
+    SENS.sar_meas_start1.meas1_start_sar = 0;
+    SENS.sar_meas_start1.meas1_start_sar = 1;
+    while (SENS.sar_meas_start1.meas1_done_sar == 0);
+    adc_value = SENS.sar_meas_start1.meas1_data_sar;
+    return adc_value;
+}
+
+
 // ============================================================================================================================== onTimer()
 void IRAM_ATTR onTimer() {
   // Fills abuf with ADC readings. The abuf is FFT-sized (e.g. 512 samples), and when it gets full,
   // the adcTask is notified to take over.
   portENTER_CRITICAL_ISR(&timerMux);
 
-  abuf[abufPos++] = adc1_get_voltage(currentInput->chan);
+  //abuf[abufPos++] = adc1_get_voltage(currentInput->chan);
+  abuf[abufPos++] = local_adc1_read(currentInput->chan);
   
-  if (abufPos >= SAMPLES_SIZE) { 
+  if (abufPos >= ADC_SAMPLES_COUNT) { 
     abufPos = 0;
 
     // Notify adcTask that the buffer is full.
@@ -204,7 +221,7 @@ void dspTask(void *param) {
 
     if (abuf2Ready) {
       // FFT is always performed
-      for (int i = 0; i < SAMPLES_SIZE; i++) {
+      for (int i = 0; i < ADC_SAMPLES_COUNT; i++) {
         fftc->input[i] = (float)(currentInput->zeroCenter - abuf2[i]);
       }
       fft_execute(fftc);
@@ -448,8 +465,9 @@ void setup() {
   Serial.print(ESP.getCpuFreqMHz());
   Serial.print(" MHz, firmware signature: ");
   Serial.println(ESP.getSketchMD5());
-  
-  Wire.setClock(400000);
+
+  Wire.begin();
+  Wire.setClock(800000);
   
   if(!SPIFFS.begin(true)){
     Serial.println("An Error has occurred while mounting SPIFFS");
@@ -458,13 +476,15 @@ void setup() {
     spiffsAvailable = true;
   }
 
-  fftc = fft_init(SAMPLES_SIZE, FFT_REAL, FFT_FORWARD, NULL, NULL);
-  
-  if (u8g2.begin()) {
-    u8g2.setFont(u8g2_font_t0_11b_mr );
+  fftc = fft_init(ADC_SAMPLES_COUNT, FFT_REAL, FFT_FORWARD, NULL, NULL);
+
+  displayAvailable = isI2Cdevice(OLED_I2C_ADDRESS);
+  if (displayAvailable) {
+    u8g2.setBusClock(800000);  
+    u8g2.begin();
+    u8g2.setFont(u8g2_font_t0_11b_mr);
     //u8g2.setFontMode(1);
     u8g2.clearBuffer();
-    displayAvailable = true;
   }
 
   pinMode(2, OUTPUT);
@@ -495,6 +515,7 @@ void setup() {
   adc1_config_width(ADC_WIDTH_12Bit);
   for (int i = 0; i < N_INPUT_CHANNELS; i++) {
     adc1_config_channel_atten(inputChannels[i].chan, inputChannels[i].atten);
+    adc1_get_raw(inputChannels[i].chan); // prime the ADC
   }
   
   //setupWiFi();
