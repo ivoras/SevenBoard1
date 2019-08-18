@@ -1,8 +1,11 @@
 /*
  * TODO:
- *     - configurable history filter of outputs
- *     - HTML sliders for RGB
- *     - HSL?
+ *     - fix Knockout binding problem with chan_mode
+ *     
+ * I2C addresses:
+ *     - 0x3C : OLED
+ *     - 0x45 : INA219
+ *     - 0x48 : LM75B
  */
 
 #include <Arduino.h>
@@ -19,7 +22,9 @@
 #include "fft.c"
 #include "debounce.h"
 
-const String SYSTEM_VERSION = "1.1.2";
+#define DEBUG
+
+const String SYSTEM_VERSION = "1.1.4";
 
 const char* wifiSSID = "SEVENBOARD1";
 const char* wifiPassword = "grillaj0";
@@ -47,7 +52,7 @@ U8G2_SSD1306_128X64_NONAME_F_HW_I2C u8g2(U8G2_R0, /* reset=*/ U8X8_PIN_NONE);
 
 #define CHAN_MODE_STATIC 0
 #define CHAN_MODE_FFT_RGB 1
-#define CHAN_MODE_FFT_HSV 2
+#define CHAN_MODE_FFT_RGBL 2
 
 #define CHAN_HISTORY_SIZE 4
 
@@ -71,6 +76,7 @@ struct disp_line_t {
 };
 
 bool blinkOn = false;
+bool webServerSetup = false;
 uint8_t displayMode = DISPLAY_FFT;
 bool configMode = false;
 String configModeMessage = "";
@@ -90,6 +96,9 @@ struct output_channel_pins_t {
   uint8_t history_g[CHAN_HISTORY_SIZE];
   uint8_t history_b[CHAN_HISTORY_SIZE];
   int16_t history_last_pos;
+  int16_t last_r;
+  int16_t last_g;
+  int16_t last_b;
 };
 
 struct output_channel_pins_t outputChannelPins[N_OUTPUT_CHANNELS] = {
@@ -113,10 +122,11 @@ struct output_channel_config_t {
   uint8_t static_r;
   uint8_t static_g;
   uint8_t static_b;
-  uint8_t hsv_h;
-  uint8_t hsv_s;
-  uint8_t hsv_v;
-  uint8_t hsv_freq;
+  uint8_t rgbl_r;
+  uint8_t rgbl_g;
+  uint8_t rgbl_b;
+  uint8_t rgbl_fslot;
+  uint8_t rgbl_fwidth;
 };
 
 struct output_channel_config_t outputChannelConfigs[N_OUTPUT_CHANNELS] = {
@@ -148,7 +158,7 @@ bool spiffsAvailable = false;
 bool displayAvailable = false;
 
 uint32_t inputBoost = 2;
-uint32_t outputDampen = 16;
+uint32_t outputDampen = 32;
 uint32_t outputCutoff = 10;
 
 fft_config_t *fftc;
@@ -159,7 +169,7 @@ TaskHandle_t dspTaskHandle;
 TaskHandle_t adcTaskHandle;
 
 
-// Adapted from the ESP32 IDF SDK's adc_concert() so that it's fixed in IRAM
+// Adapted from the ESP32 IDF SDK's adc_convert() so that it's fixed in IRAM
 int IRAM_ATTR local_adc1_read(int channel) {
     uint16_t adc_value;
     SENS.sar_meas_start1.sar1_en_pad = (1 << channel); //only one channel is selected.
@@ -262,52 +272,6 @@ void dspTask(void *param) {
   }
 }
 
-// ============================================================================================================================== fromRawValue()
-inline int32_t fromRawValue(int16_t x) {
-  if (x > outputCutoff) {
-    return int32_t(x) * inputBoost;
-  }
-  return 0;
-}
-
-// ============================================================================================================================== getRedOutput()
-int16_t getRedOutput(int16_t i) {
-  int32_t count = 0;
-  int32_t sum = 0;
-  for (int16_t j = max(0, outputChannelConfigs[i].fslot_r - outputChannelConfigs[i].fwidth_r); j <= min(outputChannelConfigs[i].fslot_r + outputChannelConfigs[i].fwidth_r, DISPLAY_WIDTH-1); j++) {
-    sum += fromRawValue(fftBuf[j]);
-    count++;
-  }
-  int32_t v = sum / count;
-  return (v*v)/outputDampen;
-}
-
-
-// ============================================================================================================================== getGreenOutput()
-int16_t getGreenOutput(int16_t i) {
-  int32_t count = 0;
-  int32_t sum = 0;
-  for (int16_t j = max(0, outputChannelConfigs[i].fslot_g - outputChannelConfigs[i].fwidth_g); j <= min(outputChannelConfigs[i].fslot_g + outputChannelConfigs[i].fwidth_g, DISPLAY_WIDTH-1); j++) {
-    sum += fromRawValue(fftBuf[j]);
-    count++;
-  }
-  int32_t v = sum / count;
-  return (v*v)/outputDampen;
-}
-
-
-// ============================================================================================================================== getBlueOutput()
-int16_t getBlueOutput(int16_t i) {
-  int32_t count = 0;
-  int32_t sum = 0;
-  for (int16_t j = max(0, outputChannelConfigs[i].fslot_b - outputChannelConfigs[i].fwidth_b); j <= min(outputChannelConfigs[i].fslot_b + outputChannelConfigs[i].fwidth_b, DISPLAY_WIDTH-1); j++) {
-    sum += fromRawValue(fftBuf[j]);
-    count++;
-  }
-  int32_t v = sum / count;
-  return (v*v)/outputDampen;
-}
-
 // ============================================================================================================================== drawDisplay()
 void drawDisplay() {
   if (!displayAvailable)
@@ -342,9 +306,13 @@ void drawDisplay() {
         if (!outputChannelConfigs[i].show_lines) {
           continue;
         }
-        u8g2.drawVLine(outputChannelConfigs[i].fslot_r, 0, DISPLAY_HEIGHT-1);
-        u8g2.drawVLine(outputChannelConfigs[i].fslot_g, 0, DISPLAY_HEIGHT-1);
-        u8g2.drawVLine(outputChannelConfigs[i].fslot_b, 0, DISPLAY_HEIGHT-1);
+        if (outputChannelConfigs[i].chan_mode == CHAN_MODE_FFT_RGB) {
+          u8g2.drawVLine(outputChannelConfigs[i].fslot_r, 0, DISPLAY_HEIGHT-1);
+          u8g2.drawVLine(outputChannelConfigs[i].fslot_g, 0, DISPLAY_HEIGHT-1);
+          u8g2.drawVLine(outputChannelConfigs[i].fslot_b, 0, DISPLAY_HEIGHT-1);
+        } else if (outputChannelConfigs[i].chan_mode == CHAN_MODE_FFT_RGBL) {
+          u8g2.drawVLine(outputChannelConfigs[i].rgbl_fslot, 0, DISPLAY_HEIGHT-1);
+        }
       }
       u8g2.drawHLine(0, DISPLAY_HEIGHT-1-outputCutoff, DISPLAY_WIDTH);
     }
@@ -353,29 +321,29 @@ void drawDisplay() {
 
     int col = 0;
     for (int i = 0; i < N_OUTPUT_CHANNELS; i++) {
-      // output channel pins go from 0-255, so divide by 4 to fit into screen
-      uint8_t red = outputChannelPins[i].history_r[outputChannelPins[i].history_last_pos] / 4;
-      uint8_t green = outputChannelPins[i].history_g[outputChannelPins[i].history_last_pos] / 4;
-      uint8_t blue = outputChannelPins[i].history_b[outputChannelPins[i].history_last_pos] / 4;
+      uint8_t red = outputChannelPins[i].last_r / 4;
+      uint8_t green = outputChannelPins[i].last_g / 4;
+      uint8_t blue = outputChannelPins[i].last_b / 4;
 
       for (int j = 0; j < bar_width; j++) {
-        u8g2.drawVLine(col++, DISPLAY_HEIGHT-1-(red/4), DISPLAY_HEIGHT-1);
+        u8g2.drawVLine(col++, DISPLAY_HEIGHT-1-(red), DISPLAY_HEIGHT-1);
       }
       col += bar_width / 2;
 
       for (int j = 0; j < bar_width; j++) {
-        u8g2.drawVLine(col++, DISPLAY_HEIGHT-1-(green/4), DISPLAY_HEIGHT-1);
+        u8g2.drawVLine(col++, DISPLAY_HEIGHT-1-(green), DISPLAY_HEIGHT-1);
       }
       col += bar_width / 2;
 
       for (int j = 0; j < bar_width; j++) {
-        u8g2.drawVLine(col++, DISPLAY_HEIGHT-1-(blue/4), DISPLAY_HEIGHT-1);
+        u8g2.drawVLine(col++, DISPLAY_HEIGHT-1-(blue), DISPLAY_HEIGHT-1);
       }
-      col += bar_width / 2 + 2;
+      col += bar_width / 2 + 3;
       
     }
   }
     
+#ifdef DEBUG
   //u8g2.setDrawColor(1);
   if (millis() - startMillis > 1000) {
     char buf[30];
@@ -383,10 +351,37 @@ void drawDisplay() {
     
     sprintf(buf, "F %02d, A %d, O %d, I %d", frameCount / seconds, dspCount / seconds, outputUpdateCount / seconds, currentInputIndex);
     u8g2.drawStr(0, 9, buf);
+    sprintf(buf, "Uptime: %d min.", seconds/60);
+    if (webServerSetup) {
+      strcat(buf, " [WiFi]");
+    }
+    u8g2.drawStr(0, 18, buf);
   }
+#endif
   
   u8g2.sendBuffer();
   frameCount++;
+}
+
+
+// ============================================================================================================================== fromRawValue()
+inline int32_t fromRawValue(int16_t x) {
+  if (x > outputCutoff) {
+    return int32_t(x) * inputBoost;
+  }
+  return 0;
+}
+
+// ============================================================================================================================== getFFTslotOutput()
+int16_t getFFTslotOutput(int16_t fslot, int16_t fwidth) {
+  int count = 0;
+  int sum = 0;
+  for (int16_t j = max(0, fslot - fwidth); j <= min(fslot + fwidth, DISPLAY_WIDTH-1); j++) {
+    sum += fromRawValue(fftBuf[j]);
+    count++;
+  }
+  int32_t v = sum / count;
+  return min((v*v)/outputDampen, (uint32_t)255);
 }
 
 // ============================================================================================================================== updateOutputs()
@@ -398,13 +393,40 @@ void updateOutputs() {
     if (outputChannelPins[i].history_last_pos >= CHAN_HISTORY_SIZE)
       outputChannelPins[i].history_last_pos = 0;
 
-    int16_t red = outputChannelPins[i].history_r[outputChannelPins[i].history_last_pos] = getRedOutput(i);
-    int16_t green = outputChannelPins[i].history_g[outputChannelPins[i].history_last_pos] = getGreenOutput(i);
-    int16_t blue = outputChannelPins[i].history_b[outputChannelPins[i].history_last_pos] = getBlueOutput(i);
+    uint16_t red; 
+    uint16_t green; 
+    uint16_t blue; 
+
+    if (outputChannelConfigs[i].chan_mode == CHAN_MODE_STATIC) {
+      red = outputChannelPins[i].history_r[outputChannelPins[i].history_last_pos] = outputChannelConfigs[i].static_r;
+      green = outputChannelPins[i].history_g[outputChannelPins[i].history_last_pos] = outputChannelConfigs[i].static_g;
+      blue = outputChannelPins[i].history_b[outputChannelPins[i].history_last_pos] = outputChannelConfigs[i].static_b;
+    } else if (outputChannelConfigs[i].chan_mode == CHAN_MODE_FFT_RGB) {
+      red = outputChannelPins[i].history_r[outputChannelPins[i].history_last_pos] = getFFTslotOutput(outputChannelConfigs[i].fslot_r, outputChannelConfigs[i].fwidth_r);
+      green = outputChannelPins[i].history_g[outputChannelPins[i].history_last_pos] = getFFTslotOutput(outputChannelConfigs[i].fslot_g, outputChannelConfigs[i].fwidth_g);
+      blue = outputChannelPins[i].history_b[outputChannelPins[i].history_last_pos] = getFFTslotOutput(outputChannelConfigs[i].fslot_b, outputChannelConfigs[i].fwidth_b);
+    } else if (outputChannelConfigs[i].chan_mode == CHAN_MODE_FFT_RGBL) {      
+      CRGB c2(outputChannelConfigs[i].rgbl_r, outputChannelConfigs[i].rgbl_g, outputChannelConfigs[i].rgbl_b);
+      c2.fadeToBlackBy(255 - getFFTslotOutput(outputChannelConfigs[i].fslot_r, outputChannelConfigs[i].fwidth_r));
+      
+      red = outputChannelPins[i].history_r[outputChannelPins[i].history_last_pos] = c2.red;
+      green = outputChannelPins[i].history_g[outputChannelPins[i].history_last_pos] = c2.green;
+      blue = outputChannelPins[i].history_b[outputChannelPins[i].history_last_pos] = c2.blue;
+    }
+
+    if (outputChannelConfigs[i].history_filter) {
+      red = sum_u8(outputChannelPins[i].history_r, CHAN_HISTORY_SIZE) / CHAN_HISTORY_SIZE;
+      green = sum_u8(outputChannelPins[i].history_g, CHAN_HISTORY_SIZE) / CHAN_HISTORY_SIZE;
+      blue = sum_u8(outputChannelPins[i].history_b, CHAN_HISTORY_SIZE) / CHAN_HISTORY_SIZE;
+    }
     
     ledcWrite(outputChannelPins[i].chan_r, red);
     ledcWrite(outputChannelPins[i].chan_g, green);
     ledcWrite(outputChannelPins[i].chan_b, blue);
+
+    outputChannelPins[i].last_r = red;
+    outputChannelPins[i].last_g = green;
+    outputChannelPins[i].last_b = blue;
   }
 }
 
@@ -488,6 +510,7 @@ void setup() {
   }
 
   pinMode(2, OUTPUT);
+  digitalWrite(2, LOW);
   pinMode(PIN_SW1, INPUT_PULLUP);
   pinMode(PIN_SW2, INPUT_PULLUP);
 
@@ -512,14 +535,24 @@ void setup() {
     pwm_chan++;    
   }
 
+  loadChannelConfig();
+  
+  if (digitalRead(PIN_SW1) == LOW) {
+    delay(500);
+    if (digitalRead(PIN_SW1) == LOW) {
+      setupWiFi();
+      digitalWrite(2, HIGH);
+      delay(2000);
+      digitalWrite(2, LOW);
+      delay(1000);
+    }
+  }
+
   adc1_config_width(ADC_WIDTH_12Bit);
   for (int i = 0; i < N_INPUT_CHANNELS; i++) {
     adc1_config_channel_atten(inputChannels[i].chan, inputChannels[i].atten);
     adc1_get_raw(inputChannels[i].chan); // prime the ADC
   }
-  
-  //setupWiFi();
-  loadChannelConfig();
 
   Serial.println("1");
   xTaskCreate(dspTask, "DSP Task", 8192, NULL, 1, &dspTaskHandle);

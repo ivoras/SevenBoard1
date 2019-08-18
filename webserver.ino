@@ -7,7 +7,6 @@
 AsyncWebServer web(80);
 IPAddress apIP(10, 10, 10, 1);
 DNSServer apDNSServer;
-bool webServerSetup = false;
 
 String indexTplProcessor(const String& var) {
   if (var == "SYSTEM_VERSION")
@@ -20,12 +19,16 @@ void setupWiFi() {
   
   Serial.println("Setting up WiFi");
   WiFi.mode(WIFI_AP);
+  delay(1);
   WiFi.softAPConfig(apIP, apIP, IPAddress(255, 255, 255, 0));
+  delay(1);
   WiFi.softAP(wifiSSID, wifiPassword);
   Serial.print("AP IP: ");
   Serial.println(WiFi.softAPIP());
 
+  delay(1);
   apDNSServer.start(53, "*", apIP);
+  delay(1);
 
   web.onNotFound([](AsyncWebServerRequest *request){
     request->send(404);

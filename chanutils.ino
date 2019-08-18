@@ -37,10 +37,11 @@ void serializeOutputChannels(JsonObject &root) {
     output["static_g"] = outputChannelConfigs[i].static_g;
     output["static_b"] = outputChannelConfigs[i].static_b;
 
-    output["hsv_h"] = outputChannelConfigs[i].hsv_h;
-    output["hsv_s"] = outputChannelConfigs[i].hsv_s;
-    output["hsv_v"] = outputChannelConfigs[i].hsv_v;
-    output["hsv_freq"] = outputChannelConfigs[i].hsv_freq;
+    output["rgbl_r"] = outputChannelConfigs[i].rgbl_r;
+    output["rgbl_g"] = outputChannelConfigs[i].rgbl_g;
+    output["rgbl_b"] = outputChannelConfigs[i].rgbl_b;
+    output["rgbl_fslot"] = outputChannelConfigs[i].rgbl_fslot;
+    output["rgbl_fwidth"] = outputChannelConfigs[i].rgbl_fwidth;
   }
 }
 
@@ -66,10 +67,11 @@ void deserializeOutputChannels(JsonDocument &doc, struct output_channel_config_t
     channels[i].static_g = outputs[n]["static_g"];
     channels[i].static_b = outputs[n]["static_b"];
 
-    channels[i].hsv_h = outputs[n]["hsv_h"];
-    channels[i].hsv_s = outputs[n]["hsv_s"];
-    channels[i].hsv_v = outputs[n]["hsv_v"];
-    channels[i].hsv_freq = outputs[n]["hsv_freq"];
+    channels[i].rgbl_r = outputs[n]["rgbl_r"];
+    channels[i].rgbl_g = outputs[n]["rgbl_g"];
+    channels[i].rgbl_b = outputs[n]["rgbl_b"];
+    channels[i].rgbl_fslot = outputs[n]["rgbl_fslot"];
+    channels[i].rgbl_fwidth = outputs[n]["rgbl_fwidth"];
   }
 }
 

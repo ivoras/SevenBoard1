@@ -16,3 +16,12 @@ bool isI2Cdevice(byte address) {
   Wire.beginTransmission(address);
   return Wire.endTransmission() == 0;
 }
+
+uint16_t sum_u8(uint8_t arr[], uint16_t arr_size) {
+  uint16_t sum = 0;
+
+  for (uint16_t i = 0; i < arr_size; i++) {
+    sum += arr[i];
+  }
+  return sum;
+}

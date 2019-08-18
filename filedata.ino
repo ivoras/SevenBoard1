@@ -16,6 +16,10 @@ const char *index_html =
     "<div class='container'>"
       "<h1 class='title'>Magic board</h1>"
       "<p class='subtitle'>Version <strong data-bind='text: sysVersion'>%SYSTEM_VERSION%</strong></p>"
+
+      "<div style='text-align: center; padding-top: 5px; padding-bottom: 5px'>"
+        "<a class='button is-primary' style='width: 10em' onclick='saveOutputs()'>Save</a>"
+      "</div>"
       
       "<div>Input boost [1-16]: <span data-bind='text: inputBoost'></span><br>"
       "<input type='range' style='width: 20em' step='1' min='1' max='16' data-bind='value: inputBoost'/></div>"
@@ -28,59 +32,58 @@ const char *index_html =
     "</div>"
   "</section>\n"
   
-  "<hr>\n"
+  //"<hr>\n"
+  //"<br>\n"
   "<section class='section'>"
 
   "<div data-bind='foreach: outputs()'>\n"
 
-    "<h1 class='title' style='background: silver'>Channel <span data-bind='text: ($index() + 1)'></span></h1>"
+    "<h1 class='title' style='background: silver'>Channel <span data-bind='text: ($index() + 1)'></span></h1>\n"
+
+    "<div>"
+      "<div><label><input type='checkbox' data-bind='checked: history_filter'> Blur filter</label></div>"
+      "<div><label><input type='checkbox' data-bind='checked: show_lines'> Show freq. lines</label></div>"
+      "<div>Type: <span data-bind='text: chan_mode'></span></div>"
+    "</div>\n"
     
     "<div>"
-      "<label><input type='radio' value='0' data-bind=\"checked: chan_mode, attr: { name: 'ch' + $index() }\"> Static RGB</label><br>"
+      "<label><input type='radio' value='0' data-bind=\"attr: { name: 'ch' + $index() }, checked: chan_mode \"> Static RGB</label><br>"
       "<div style='margin-left: 2em'>"
-        "<span style='display: inline-block; width: 4em'>R: <span data-bind='text: static_r'></span></span><input type='range' style='width: 20em' step='1' min='0' max='255' data-bind='value: static_r'/><br>"
-        "<span style='display: inline-block; width: 4em'>G: <span data-bind='text: static_g'></span></span><input type='range' style='width: 20em' step='1' min='0' max='255' data-bind='value: static_g'/><br>"
-        "<span style='display: inline-block; width: 4em'>B: <span data-bind='text: static_b'></span></span><input type='range' style='width: 20em' step='1' min='0' max='255' data-bind='value: static_b'/><br>"
+        "<span style='display: inline-block; width: 12em'>R [0-255]: <span data-bind='text: static_r'></span></span><input type='range' style='width: 18em' step='1' min='0' max='255' data-bind='value: static_r'/><br>"
+        "<span style='display: inline-block; width: 12em'>G [0-255]: <span data-bind='text: static_g'></span></span><input type='range' style='width: 18em' step='1' min='0' max='255' data-bind='value: static_g'/><br>"
+        "<span style='display: inline-block; width: 12em'>B [0-255]: <span data-bind='text: static_b'></span></span><input type='range' style='width: 18em' step='1' min='0' max='255' data-bind='value: static_b'/><br>"
       "</div>"
     "</div>\n"
 
     "<div>"
-      "<label><input type='radio' value='2' data-bind=\"checked: chan_mode, attr: { name: 'ch' + $index() }\"> Dynamic HSV</label><br>"
+      "<label><input type='radio' value='2' data-bind=\"attr: { name: 'ch' + $index() }, checked: chan_mode\"> Frequency-based single RGB</label><br>"
       "<div style='margin-left: 2em'>"
-        "<span style='display: inline-block; width: 4em'>H: <span data-bind='text: hsv_h'></span></span><input type='range' style='width: 20em' step='1' min='0' max='255' data-bind='value: hsv_h'/><br>"
-        "<span style='display: inline-block; width: 4em'>S: <span data-bind='text: hsv_s'></span></span><input type='range' style='width: 20em' step='1' min='0' max='255' data-bind='value: hsv_s'/><br>"
-        "<span style='display: inline-block; width: 4em'>V: <span data-bind='text: hsv_v'></span></span><input type='range' style='width: 20em' step='1' min='0' max='255' data-bind='value: hsv_v'/><br>"
+
+        "<span style='display: inline-block; width: 12em'>Freq. [0-127]: <span data-bind='text: rgbl_fslot'></span></span><input type='range' style='width: 18em' step='1' min='0' max='127' data-bind='value: rgbl_fslot'/><br>"
+        "<span style='display: inline-block; width: 12em'>Width [0-16]: <span data-bind='text: rgbl_fwidth'></span></span><input type='range' style='width: 18em' step='1' min='0' max='16' data-bind='value: rgbl_fwidth'/><br>"
+        "<hr>"
+        "<span style='display: inline-block; width: 12em'>R [0-255]: <span data-bind='text: rgbl_r'></span></span><input type='range' style='width: 18em' step='1' min='0' max='255' data-bind='value: rgbl_r'/><br>"
+        "<span style='display: inline-block; width: 12em'>G [0-255]: <span data-bind='text: rgbl_g'></span></span><input type='range' style='width: 18em' step='1' min='0' max='255' data-bind='value: rgbl_g'/><br>"
+        "<span style='display: inline-block; width: 12em'>B [0-255]: <span data-bind='text: rgbl_b'></span></span><input type='range' style='width: 18em' step='1' min='0' max='255' data-bind='value: rgbl_b'/><br>"
       "</div>"
     "</div>\n"
 
     "<div>"
-      "<label><input type='radio' value='1' data-bind=\"checked: chan_mode, attr: { name: 'ch' + $index() }\"> Frequency-based RGB</label><br>"
+      "<label><input type='radio' value='1' data-bind=\"attr: { name: 'ch' + $index() }, checked: chan_mode\"> Frequency-based RGB channels</label><br>"
+      "<div style='margin-left: 2em'>"
+        "<span style='display: inline-block; width: 12em'>R freq. [0-127]: <span data-bind='text: fslot_r'></span></span><input type='range' style='width: 18em' step='1' min='0' max='127' data-bind='value: fslot_r'/><br>"
+        "<span style='display: inline-block; width: 12em'>R width [0-16]: <span data-bind='text: fwidth_r'></span></span><input type='range' style='width: 18em' step='1' min='0' max='16' data-bind='value: fwidth_r'/><br>"
+        "<hr>"
+        "<span style='display: inline-block; width: 12em'>G freq. [0-127]: <span data-bind='text: fslot_g'></span></span><input type='range' style='width: 18em' step='1' min='0' max='127' data-bind='value: fslot_g'/><br>"
+        "<span style='display: inline-block; width: 12em'>G width [0-16]: <span data-bind='text: fwidth_g'></span></span><input type='range' style='width: 18em' step='1' min='0' max='16' data-bind='value: fwidth_g'/><br>"
+        "<hr>"
+        "<span style='display: inline-block; width: 12em'>B freq. [0-127]: <span data-bind='text: fslot_b'></span></span><input type='range' style='width: 18em' step='1' min='0' max='127' data-bind='value: fslot_b'/><br>"
+        "<span style='display: inline-block; width: 12em'>B width [0-16]: <span data-bind='text: fwidth_b'></span></span><input type='range' style='width: 18em' step='1' min='0' max='16' data-bind='value: fwidth_b'/><br>"
+      "</div>"
     "</div>\n"
 
   "<hr>"
   "</div>\n"
-
-/*  
-    "<table class='table is-striped is-fullwidth'>"
-      "<thead>"
-        "<tr><th>R</th><th>Rw</th><th>G</th><th>Gw</th><th>B</th><th>Bw</th><th>LL</th></tr>"
-      "</thead>"
-      "<tbody data-bind='foreach: outputs'>"
-        "<tr>"
-          "<td><input type='text' data-bind='value: fslot_r' style='width: 2em'/></td>"
-          "<td><input type='text' data-bind='value: fwidth_r' style='width: 2em'/></td>"
-          
-          "<td><input type='text' data-bind='value: fslot_g' style='width: 2em'/></td>"
-          "<td><input type='text' data-bind='value: fwidth_g' style='width: 2em'/></td>"
-          
-          "<td><input type='text' data-bind='value: fslot_b' style='width: 2em'/></td>"
-          "<td><input type='text' data-bind='value: fwidth_b' style='width: 2em'/></td>"
-
-          "<td><input type='checkbox' data-bind='checked: show_lines'/></td>"
-        "</tr>"
-      "</tbody>"
-    "</table>"
-*/
     
     "<p><strong>R, G, B</strong> are frequency channels, ranging from 0-127. <strong>Rw, Gb, Bw</strong> are frequency band widths, ranging from 0-15.</p>"
     "<p>System uptime: <span data-bind='text: upMinutes'>x</span> minutes.</p>"
