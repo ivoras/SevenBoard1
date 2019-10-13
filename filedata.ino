@@ -21,11 +21,11 @@ const char *index_html =
         "<a class='button is-primary' style='width: 10em' onclick='saveOutputs()'>Save</a>"
       "</div>"
       
-      "<div>Input boost [1-16]: <span data-bind='text: inputBoost'></span><br>"
-      "<input type='range' style='width: 20em' step='1' min='1' max='16' data-bind='value: inputBoost'/></div>"
+      "<div>Input boost [1-50]: <span data-bind='text: inputBoost'></span><br>"
+      "<input type='range' style='width: 20em' step='1' min='1' max='50' data-bind='value: inputBoost'/></div>"
 
-      "<div>Output dampening [1-8192]: <span data-bind='text: outputDampen'></span><br>"
-      "<input type='range' style='width: 20em' step='1' min='1' max='8192' data-bind='value: outputDampen'/></div>"
+      "<div>Output damping [1-4000]: <span data-bind='text: outputDampen'></span><br>"
+      "<input type='range' style='width: 20em' step='1' min='1' max='4000' data-bind='value: outputDampen'/></div>"
 
       "<div>Output cutoff [1-20]: <span data-bind='text: outputCutoff'></span><br>"
       "<input type='range' style='width: 20em' step='1' min='1' max='20' data-bind='value: outputCutoff'/></div>"
@@ -45,9 +45,13 @@ const char *index_html =
       "<div><label><input type='checkbox' data-bind='checked: show_lines'> Show freq. lines</label></div>"
       "<div><label><input type='radio' data-bind=\"checked: fslot_op, attr: { name: 'fop' + $index() }\" value='0'> AVG</label> | "
            "<label><input type='radio' data-bind=\"checked: fslot_op, attr: { name: 'fop' + $index() }\" value='1'> MIN</label> | "
-           "<label><input type='radio' data-bind=\"checked: fslot_op, attr: { name: 'fop' + $index() }\" value='2'> MAX</label> <span data-bind='text: fslot_op'></span></div>"
+           "<label><input type='radio' data-bind=\"checked: fslot_op, attr: { name: 'fop' + $index() }\" value='2'> MAX</label></div>"
       //"<div>Type: <span data-bind='text: chan_mode'></span></div>"
     "</div>\n"
+
+    "<div>"
+      "<span style='display: inline-block; width: 12em'>Damping [0-255]: <span data-bind='text: fslot_damp'></span></span><input type='range' style='width: 18em' step='1' min='0' max='255' data-bind='value: fslot_damp'/><br>"
+    "</div>"
     
     "<div>"
       "<label style='font-weight: bold'><input type='radio' value='0' data-bind=\"attr: { name: 'ch' + $index() }, checked: chan_mode \"> Static RGB</label><br>"

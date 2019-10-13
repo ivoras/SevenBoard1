@@ -26,7 +26,7 @@
 
 #define DEBUG
 
-const String SYSTEM_VERSION = "1.3.3";
+const String SYSTEM_VERSION = "1.3.5";
 
 const char* wifiSSID = "SEVENBOARD1";
 const char* wifiPassword = "grillaj0";
@@ -41,7 +41,7 @@ Adafruit_INA219 ina219(INA219_I2C_ADDRESS);
 Generic_LM75 lm75;
 
 #define PIN_WS2812 12
-#define N_WS2812_LEDS 100
+#define N_WS2812_LEDS 1
 CRGB ws2812[N_WS2812_LEDS];
 
 #define PIN_SW1 35
@@ -75,11 +75,13 @@ struct input_channel_t {
   adc1_channel_t  chan;
   adc_atten_t     atten;
   int16_t         zeroCenter;
+  int16_t         dispZeroCenter;
 };
 
 struct input_channel_t DRAM_ATTR inputChannels[N_INPUT_CHANNELS] = {
-  { ADC1_CHANNEL_0, ADC_ATTEN_11db, 2048 }, // 3.5mm
-  { ADC1_CHANNEL_6, ADC_ATTEN_11db, 1850 },  // mic module
+  // atten: 0, 6 (3700), 11 (1850)
+  { ADC1_CHANNEL_0, ADC_ATTEN_0db, 2048 }, // 3.5mm
+  { ADC1_CHANNEL_6, ADC_ATTEN_6db, 2048, -20 },  // mic module
 };
 
 uint8_t currentInputIndex = 1;
@@ -143,6 +145,7 @@ struct output_channel_config_t {
   uint8_t rgbl_b;
   uint8_t rgbl_fslot;
   uint8_t rgbl_fwidth;
+  uint8_t fslot_damp;
 };
 
 struct output_channel_config_t outputChannelConfigs[N_OUTPUT_CHANNELS] = {
@@ -163,7 +166,7 @@ int16_t DRAM_ATTR abuf2[ADC_SAMPLES_COUNT];
 int16_t volatile DRAM_ATTR abufPos = 0;
 volatile bool DRAM_ATTR abuf2Ready = false;
 
-int16_t fftBuf[DISPLAY_WIDTH];
+int16_t fftSlot[DISPLAY_WIDTH];
 volatile bool dbufReady = false;
 volatile uint32_t dspCount = 0;
 volatile uint32_t oldDspCount = 0; // used to detect transition into new dsp result in loop()
@@ -175,7 +178,7 @@ bool displayAvailable = false;
 bool ina219Available = false;
 bool lm75Available = false;
 
-uint32_t inputBoost = 2;
+uint32_t inputBoost = 5;
 uint32_t outputDampen = 32;
 uint32_t outputCutoff = 3;
 
@@ -243,6 +246,7 @@ void adcTask(void *param) {
 // ============================================================================================================================== dspTask()
 void dspTask(void *param) {
   // Analyses ADC data read by the onTimer ISR, creates FFT and dispLines outputs
+  float fInputBoost = ((float)inputBoost)/5.0;
 
   while (true) {
     uint32_t tval = ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(1000));
@@ -257,15 +261,15 @@ void dspTask(void *param) {
         float ssum = 0;
         for (int j = (i * SAMPLES_PER_LINE); j < ( (i+1) * SAMPLES_PER_LINE ); j++) {
           if (j % 2 == 1) {
-            ssum += abs(fftc->output[j]);
+            ssum += abs(fftc->output[j] * fInputBoost);
           }
         }
-        fftBuf[i] = (ssum / SAMPLES_PER_LINE) / 300;
+        fftSlot[i] = (ssum / SAMPLES_PER_LINE) / 300;
       }
 
-      for (int i = 0; i < fftBuf[1] / 2; i++) {
+/*      for (int i = 0; i < fftSlot[1] / 2; i++) {
           Fire2012();
-      }
+      }*/
 
       // Draw something into dispLines, depending on the setting
       if (displayMode == DISPLAY_WAVE) {  
@@ -275,14 +279,14 @@ void dspTask(void *param) {
             ssum += (currentInput->zeroCenter - abuf2[j]);
           }
           
-          int amp = (ssum / SAMPLES_PER_LINE) / 75;
+          int amp = (ssum / SAMPLES_PER_LINE) / 75  - currentInput->dispZeroCenter;
           dispLines[i].y1 = 31;
           dispLines[i].y2 = 31 + amp;
         }
       } else if (displayMode == DISPLAY_FFT) {
         for (int i = 0; i < DISPLAY_WIDTH; i++) {
           dispLines[i].y1 = 63;
-          dispLines[i].y2 = 63 - fftBuf[i];
+          dispLines[i].y2 = 63 - fftSlot[i];
         }
       }
       dbufReady = true;
@@ -399,13 +403,13 @@ void drawDisplay() {
 // ============================================================================================================================== fromRawValue()
 inline int32_t fromRawValue(int16_t x) {
   if (x > outputCutoff) {
-    return int32_t(x) * inputBoost;
+    return int32_t(x) /** inputBoost*/;
   }
   return 0;
 }
 
 // ============================================================================================================================== getFFTslotOutput()
-int16_t getFFTslotOutput(int16_t fslot, int16_t fwidth, int16_t fslot_op) {
+int16_t getFFTslotOutput(int16_t fslot, int16_t fwidth, int16_t fslot_op, uint32_t fslot_damp) {
   uint32_t v;
   int count = 0;
   int sum = 0;
@@ -413,7 +417,7 @@ int16_t getFFTslotOutput(int16_t fslot, int16_t fwidth, int16_t fslot_op) {
   switch(fslot_op) {
     case FSLOT_OP_AVG:
       for (int16_t j = max(0, fslot - fwidth); j <= min(fslot + fwidth, DISPLAY_WIDTH-1); j++) {
-        sum += fromRawValue(fftBuf[j]);
+        sum += fromRawValue(fftSlot[j]);
         count++;
       }
       v = sum / count;
@@ -421,7 +425,7 @@ int16_t getFFTslotOutput(int16_t fslot, int16_t fwidth, int16_t fslot_op) {
     case FSLOT_OP_MIN:
       v = INT_MAX;
       for (int16_t j = max(0, fslot - fwidth); j <= min(fslot + fwidth, DISPLAY_WIDTH-1); j++) {
-        int32_t vv = fromRawValue(fftBuf[j]);
+        int32_t vv = fromRawValue(fftSlot[j]);
         if (vv < v) {
           v = vv;
         }
@@ -430,7 +434,7 @@ int16_t getFFTslotOutput(int16_t fslot, int16_t fwidth, int16_t fslot_op) {
     case FSLOT_OP_MAX:
       v = 0;
       for (int16_t j = max(0, fslot - fwidth); j <= min(fslot + fwidth, DISPLAY_WIDTH-1); j++) {
-        int32_t vv = fromRawValue(fftBuf[j]);
+        int32_t vv = fromRawValue(fftSlot[j]);
         if (vv > v) {
           v = vv;
         }
@@ -438,7 +442,7 @@ int16_t getFFTslotOutput(int16_t fslot, int16_t fwidth, int16_t fslot_op) {
       break;
   }
   
-  return min((v*v)/outputDampen, (uint32_t)255);
+  return min((v*v)/(outputDampen + fslot_damp), (uint32_t)255);
 }
 
 // ============================================================================================================================== updateOutputs()
@@ -459,12 +463,12 @@ void updateOutputs() {
       green = outputChannelPins[i].history_g[outputChannelPins[i].history_last_pos] = outputChannelConfigs[i].static_g;
       blue = outputChannelPins[i].history_b[outputChannelPins[i].history_last_pos] = outputChannelConfigs[i].static_b;
     } else if (outputChannelConfigs[i].chan_mode == CHAN_MODE_FFT_RGB) {
-      red = outputChannelPins[i].history_r[outputChannelPins[i].history_last_pos] = getFFTslotOutput(outputChannelConfigs[i].fslot_r, outputChannelConfigs[i].fwidth_r, outputChannelConfigs[i].fslot_op);
-      green = outputChannelPins[i].history_g[outputChannelPins[i].history_last_pos] = getFFTslotOutput(outputChannelConfigs[i].fslot_g, outputChannelConfigs[i].fwidth_g, outputChannelConfigs[i].fslot_op);
-      blue = outputChannelPins[i].history_b[outputChannelPins[i].history_last_pos] = getFFTslotOutput(outputChannelConfigs[i].fslot_b, outputChannelConfigs[i].fwidth_b, outputChannelConfigs[i].fslot_op);
+      red = outputChannelPins[i].history_r[outputChannelPins[i].history_last_pos] = getFFTslotOutput(outputChannelConfigs[i].fslot_r, outputChannelConfigs[i].fwidth_r, outputChannelConfigs[i].fslot_op, outputChannelConfigs[i].fslot_damp);
+      green = outputChannelPins[i].history_g[outputChannelPins[i].history_last_pos] = getFFTslotOutput(outputChannelConfigs[i].fslot_g, outputChannelConfigs[i].fwidth_g, outputChannelConfigs[i].fslot_op, outputChannelConfigs[i].fslot_damp);
+      blue = outputChannelPins[i].history_b[outputChannelPins[i].history_last_pos] = getFFTslotOutput(outputChannelConfigs[i].fslot_b, outputChannelConfigs[i].fwidth_b, outputChannelConfigs[i].fslot_op, outputChannelConfigs[i].fslot_damp);
     } else if (outputChannelConfigs[i].chan_mode == CHAN_MODE_FFT_RGBL) {      
       CRGB c2(outputChannelConfigs[i].rgbl_r, outputChannelConfigs[i].rgbl_g, outputChannelConfigs[i].rgbl_b);
-      c2.fadeToBlackBy(255 - getFFTslotOutput(outputChannelConfigs[i].rgbl_fslot, outputChannelConfigs[i].rgbl_fwidth, outputChannelConfigs[i].fslot_op));
+      c2.fadeToBlackBy(255 - getFFTslotOutput(outputChannelConfigs[i].rgbl_fslot, outputChannelConfigs[i].rgbl_fwidth, outputChannelConfigs[i].fslot_op, outputChannelConfigs[i].fslot_damp));
       
       red = outputChannelPins[i].history_r[outputChannelPins[i].history_last_pos] = c2.red;
       green = outputChannelPins[i].history_g[outputChannelPins[i].history_last_pos] = c2.green;
@@ -678,7 +682,7 @@ void loop() {
     dbufReady = false;
   }
 
-  FastLED.show();
+  //FastLED.show();
 
   loopCount++;
 }

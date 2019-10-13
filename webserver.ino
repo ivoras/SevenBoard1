@@ -110,16 +110,27 @@ void setupWiFi() {
   }, 
   NULL, 
   [](AsyncWebServerRequest *request, uint8_t *data, size_t len, size_t index, size_t total){
+    static char *buf = NULL;
+    
     Serial.println("POST /outputs (body)");
+
+    if (index == 0) {
+      buf = (char*)realloc(buf, total);
+    }
+    memcpy(buf + index, data, len);
+    
     if (index + len != total) {
-      Serial.println("/outputs body handler got partial data?");
+      Serial.print("/outputs body handler got partial data len=");
+      Serial.println(len, DEC);
       return;
     }
+    Serial.print("POST body length: ");
+    Serial.println(total, DEC);
     //Serial.print("RAW JSON: ");
     //Serial.println((char*)data);
     
     StaticJsonDocument<2048> jsonDoc;
-    auto error = deserializeJson(jsonDoc, data);
+    auto error = deserializeJson(jsonDoc, buf);
     if (error) {
       Serial.print("deserializeJson() failed: ");
       Serial.println(error.c_str());
