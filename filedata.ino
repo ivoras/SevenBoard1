@@ -17,15 +17,15 @@ const char *index_html =
       "<h1 class='title'>Magic board</h1>"
       "<p class='subtitle'>Version <strong data-bind='text: sysVersion'>%SYSTEM_VERSION%</strong></p>"
 
-      "<div style='text-align: center; padding-top: 5px; padding-bottom: 5px'>"
+      "<div style='text-align: center; padding-top: 5px; padding-bottom: 15px'>"
         "<a class='button is-primary' style='width: 10em' onclick='saveOutputs()'>Save</a>"
       "</div>"
       
       "<div>Input boost [1-16]: <span data-bind='text: inputBoost'></span><br>"
       "<input type='range' style='width: 20em' step='1' min='1' max='16' data-bind='value: inputBoost'/></div>"
 
-      "<div>Output dampening [1-4096]: <span data-bind='text: outputDampen'></span><br>"
-      "<input type='range' style='width: 20em' step='1' min='1' max='4096' data-bind='value: outputDampen'/></div>"
+      "<div>Output dampening [1-8192]: <span data-bind='text: outputDampen'></span><br>"
+      "<input type='range' style='width: 20em' step='1' min='1' max='8192' data-bind='value: outputDampen'/></div>"
 
       "<div>Output cutoff [1-20]: <span data-bind='text: outputCutoff'></span><br>"
       "<input type='range' style='width: 20em' step='1' min='1' max='20' data-bind='value: outputCutoff'/></div>"
@@ -43,11 +43,14 @@ const char *index_html =
     "<div>"
       "<div><label><input type='checkbox' data-bind='checked: history_filter'> Blur filter</label></div>"
       "<div><label><input type='checkbox' data-bind='checked: show_lines'> Show freq. lines</label></div>"
-      "<div>Type: <span data-bind='text: chan_mode'></span></div>"
+      "<div><label><input type='radio' data-bind=\"checked: fslot_op, attr: { name: 'fop' + $index() }\" value='0'> AVG</label> | "
+           "<label><input type='radio' data-bind=\"checked: fslot_op, attr: { name: 'fop' + $index() }\" value='1'> MIN</label> | "
+           "<label><input type='radio' data-bind=\"checked: fslot_op, attr: { name: 'fop' + $index() }\" value='2'> MAX</label> <span data-bind='text: fslot_op'></span></div>"
+      //"<div>Type: <span data-bind='text: chan_mode'></span></div>"
     "</div>\n"
     
     "<div>"
-      "<label><input type='radio' value='0' data-bind=\"attr: { name: 'ch' + $index() }, checked: chan_mode \"> Static RGB</label><br>"
+      "<label style='font-weight: bold'><input type='radio' value='0' data-bind=\"attr: { name: 'ch' + $index() }, checked: chan_mode \"> Static RGB</label><br>"
       "<div style='margin-left: 2em'>"
         "<span style='display: inline-block; width: 12em'>R [0-255]: <span data-bind='text: static_r'></span></span><input type='range' style='width: 18em' step='1' min='0' max='255' data-bind='value: static_r'/><br>"
         "<span style='display: inline-block; width: 12em'>G [0-255]: <span data-bind='text: static_g'></span></span><input type='range' style='width: 18em' step='1' min='0' max='255' data-bind='value: static_g'/><br>"
@@ -56,7 +59,7 @@ const char *index_html =
     "</div>\n"
 
     "<div>"
-      "<label><input type='radio' value='2' data-bind=\"attr: { name: 'ch' + $index() }, checked: chan_mode\"> Frequency-based single RGB</label><br>"
+      "<label style='font-weight: bold'><input type='radio' value='2' data-bind=\"attr: { name: 'ch' + $index() }, checked: chan_mode\"> Frequency-based single RGB</label><br>"
       "<div style='margin-left: 2em'>"
 
         "<span style='display: inline-block; width: 12em'>Freq. [0-127]: <span data-bind='text: rgbl_fslot'></span></span><input type='range' style='width: 18em' step='1' min='0' max='127' data-bind='value: rgbl_fslot'/><br>"
@@ -69,7 +72,7 @@ const char *index_html =
     "</div>\n"
 
     "<div>"
-      "<label><input type='radio' value='1' data-bind=\"attr: { name: 'ch' + $index() }, checked: chan_mode\"> Frequency-based RGB channels</label><br>"
+      "<label style='font-weight: bold'><input type='radio' value='1' data-bind=\"attr: { name: 'ch' + $index() }, checked: chan_mode\"> Frequency-based RGB channels</label><br>"
       "<div style='margin-left: 2em'>"
         "<span style='display: inline-block; width: 12em'>R freq. [0-127]: <span data-bind='text: fslot_r'></span></span><input type='range' style='width: 18em' step='1' min='0' max='127' data-bind='value: fslot_r'/><br>"
         "<span style='display: inline-block; width: 12em'>R width [0-16]: <span data-bind='text: fwidth_r'></span></span><input type='range' style='width: 18em' step='1' min='0' max='16' data-bind='value: fwidth_r'/><br>"
@@ -93,7 +96,7 @@ const char *index_html =
   "<script>\n"
 
   "function newDataModel() {"
-    "var dataModel = { 'sysVersion': ko.observable(0), 'inputBoost': ko.observable(0), 'outputDampen': ko.observable(0), 'outputCutoff': ko.observable(0), 'outputs': ko.observable([]), 'millis': ko.observable(0) };"
+    "var dataModel = { 'sysVersion': ko.observable(0), 'inputBoost': ko.observable(0), 'outputDampen': ko.observable(0), 'outputCutoff': ko.observable(0), 'outputs': ko.observableArray([]), 'millis': ko.observable(0) };"
     "dataModel.upMinutes = ko.computed(function() { return Math.round(dataModel.millis() / 1000 / 60); }, dataModel);"
     "return dataModel;"
   "}\n"
@@ -116,6 +119,12 @@ const char *index_html =
       "dataModel.inputBoost(resp.inputBoost);"
       "dataModel.outputDampen(resp.outputDampen);"
       "dataModel.outputCutoff(resp.outputCutoff);"
+      "for (var i = 0; i < dataModel.outputs()().length; i++) {"
+        "var m = dataModel.outputs()()[i].chan_mode();"
+        "dataModel.outputs()()[i].chan_mode(m.toString(10));"
+        "m = dataModel.outputs()()[i].fslot_op();"
+        "dataModel.outputs()()[i].fslot_op(m.toString(10));"
+      "}"
     "};"
     "xhr.send();"
   "}\n"
@@ -2225,7 +2234,7 @@ const unsigned char PROGMEM bulma_min_css_gz[] = {
   0xb1, 0xe4, 0x3f, 0x58, 0x2b, 0x06, 0x73, 0x8e, 0xfa, 0x7f, 0x01, 0xee,
   0x9e, 0x0e, 0x13, 0x81, 0xe8, 0x02, 0x00
 };
-unsigned int bulma_min_css_gz_len = 24967;
+const unsigned int bulma_min_css_gz_len = 24967;
 
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
@@ -4306,7 +4315,7 @@ const unsigned char PROGMEM knockout_3_5_0_js_gz[] = {
   0x8d, 0xf3, 0x9d, 0x6c, 0x9f, 0xf3, 0x9f, 0xce, 0xff, 0x00, 0xfe, 0xc2,
   0x2b, 0x37, 0x6b, 0x09, 0x01, 0x00
 };
-unsigned int knockout_3_5_0_js_gz_len = 24894;
+const unsigned int knockout_3_5_0_js_gz_len = 24894;
 
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
@@ -4446,7 +4455,7 @@ const unsigned char PROGMEM bulma_slider_min_css_gz[] = {
   0x95, 0x37, 0x90, 0x5b, 0x85, 0xa5, 0x2b, 0xda, 0x7f, 0x00, 0xc9, 0xea,
   0x00, 0x7e, 0xe5, 0x2d, 0x00, 0x00
 };
-unsigned int bulma_slider_min_css_gz_len = 1602;
+const unsigned int bulma_slider_min_css_gz_len = 1602;
 
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
@@ -4633,7 +4642,7 @@ const unsigned char PROGMEM bulma_slider_min_js_gz[] = {
   0x3f, 0xa9, 0xad, 0x70, 0xcc, 0x1e, 0xa7, 0xb4, 0x3f, 0xad, 0xd3, 0xf9,
   0x7f, 0x00, 0x57, 0xb0, 0xf0, 0xd8, 0xad, 0x19, 0x00, 0x00
 };
-unsigned int bulma_slider_min_js_gz_len = 2170;
+const unsigned int bulma_slider_min_js_gz_len = 2170;
 
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
@@ -4920,4 +4929,4 @@ const unsigned char PROGMEM knockout_mapping_latest_js_gz[] = {
   0x3e, 0xec, 0x6d, 0xd8, 0x1e, 0x4e, 0x24, 0x9a, 0x9a, 0x06, 0x9e, 0x7b,
   0xff, 0x05, 0x6e, 0xcb, 0x2a, 0x5a, 0x34, 0x25, 0x00, 0x00
 };
-unsigned int knockout_mapping_latest_js_gz_len = 3370;
+const unsigned int knockout_mapping_latest_js_gz_len = 3370;

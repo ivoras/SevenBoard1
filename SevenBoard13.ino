@@ -9,14 +9,16 @@
  */
 
 #include <Arduino.h>
+#include <driver/adc.h>
+#include <soc/sens_reg.h>
+#include <soc/sens_struct.h>
 #include <ArduinoJson.h>
 #include <U8g2lib.h>
 #include <SPIFFS.h>
 #include <Wire.h>
-#include <driver/adc.h>
-#include <soc/sens_reg.h>
-#include <soc/sens_struct.h>
 #include <FastLED.h>
+#include <Adafruit_INA219.h>
+#include <Temperature_LM75_Derived.h>
 
 #include "fft.h"
 #include "fft.c"
@@ -24,15 +26,24 @@
 
 #define DEBUG
 
-const String SYSTEM_VERSION = "1.1.4";
+const String SYSTEM_VERSION = "1.3.3";
 
 const char* wifiSSID = "SEVENBOARD1";
 const char* wifiPassword = "grillaj0";
 
 #define OLED_I2C_ADDRESS 0x3c
-
 U8G2_SSD1306_128X64_NONAME_F_HW_I2C u8g2(U8G2_R0, /* reset=*/ U8X8_PIN_NONE);
- 
+
+#define INA219_I2C_ADDRESS 0x45
+Adafruit_INA219 ina219(INA219_I2C_ADDRESS);
+
+#define LM75_I2C_ADDRESS 0x48
+Generic_LM75 lm75;
+
+#define PIN_WS2812 12
+#define N_WS2812_LEDS 100
+CRGB ws2812[N_WS2812_LEDS];
+
 #define PIN_SW1 35
 #define PIN_SW2 39
 
@@ -56,6 +67,10 @@ U8G2_SSD1306_128X64_NONAME_F_HW_I2C u8g2(U8G2_R0, /* reset=*/ U8X8_PIN_NONE);
 
 #define CHAN_HISTORY_SIZE 4
 
+#define FSLOT_OP_AVG 0
+#define FSLOT_OP_MIN 1
+#define FSLOT_OP_MAX 2
+
 struct input_channel_t {
   adc1_channel_t  chan;
   adc_atten_t     atten;
@@ -64,7 +79,7 @@ struct input_channel_t {
 
 struct input_channel_t DRAM_ATTR inputChannels[N_INPUT_CHANNELS] = {
   { ADC1_CHANNEL_0, ADC_ATTEN_11db, 2048 }, // 3.5mm
-  { ADC1_CHANNEL_6, ADC_ATTEN_6db, 2700 },  // mic module
+  { ADC1_CHANNEL_6, ADC_ATTEN_11db, 1850 },  // mic module
 };
 
 uint8_t currentInputIndex = 1;
@@ -114,11 +129,12 @@ struct output_channel_config_t {
   uint8_t fslot_r;
   uint8_t fslot_g;
   uint8_t fslot_b;
+  uint8_t fslot_op;
   bool show_lines;
+  bool history_filter;
   uint8_t fwidth_r;
   uint8_t fwidth_g;
   uint8_t fwidth_b;
-  bool history_filter;
   uint8_t static_r;
   uint8_t static_g;
   uint8_t static_b;
@@ -130,11 +146,11 @@ struct output_channel_config_t {
 };
 
 struct output_channel_config_t outputChannelConfigs[N_OUTPUT_CHANNELS] = {
-  { chan_mode: CHAN_MODE_FFT_RGB, fslot_r: 6, fslot_g: 45, fslot_b: 60, show_lines: true,  fwidth_r: 2, fwidth_g: 5, fwidth_b: 10 },
-  { chan_mode: CHAN_MODE_FFT_RGB, fslot_r: 6, fslot_g: 45, fslot_b: 60, show_lines: false, fwidth_r: 2, fwidth_g: 5, fwidth_b: 10 },
-  { chan_mode: CHAN_MODE_FFT_RGB, fslot_r: 6, fslot_g: 45, fslot_b: 60, show_lines: false, fwidth_r: 2, fwidth_g: 5, fwidth_b: 10 },
-  { chan_mode: CHAN_MODE_FFT_RGB, fslot_r: 6, fslot_g: 45, fslot_b: 60, show_lines: false, fwidth_r: 2, fwidth_g: 5, fwidth_b: 10 },
-  { chan_mode: CHAN_MODE_FFT_RGB, fslot_r: 6, fslot_g: 45, fslot_b: 60, show_lines: false, fwidth_r: 2, fwidth_g: 5, fwidth_b: 10 },
+  { chan_mode: CHAN_MODE_FFT_RGB, fslot_r: 6, fslot_g: 45, fslot_b: 60, fslot_op: FSLOT_OP_AVG, show_lines: true,  history_filter: true, fwidth_r: 2, fwidth_g: 5, fwidth_b: 10 },
+  { chan_mode: CHAN_MODE_FFT_RGB, fslot_r: 6, fslot_g: 45, fslot_b: 60, fslot_op: FSLOT_OP_AVG, show_lines: false, history_filter: true, fwidth_r: 2, fwidth_g: 5, fwidth_b: 10 },
+  { chan_mode: CHAN_MODE_FFT_RGB, fslot_r: 6, fslot_g: 45, fslot_b: 60, fslot_op: FSLOT_OP_AVG, show_lines: false, history_filter: true, fwidth_r: 2, fwidth_g: 5, fwidth_b: 10 },
+  { chan_mode: CHAN_MODE_FFT_RGB, fslot_r: 6, fslot_g: 45, fslot_b: 60, fslot_op: FSLOT_OP_AVG, show_lines: false, history_filter: true, fwidth_r: 2, fwidth_g: 5, fwidth_b: 10 },
+  { chan_mode: CHAN_MODE_FFT_RGB, fslot_r: 6, fslot_g: 45, fslot_b: 60, fslot_op: FSLOT_OP_AVG, show_lines: false, history_filter: true, fwidth_r: 2, fwidth_g: 5, fwidth_b: 10 },
 };
 
 uint32_t lastBlink = 0;
@@ -156,10 +172,12 @@ volatile uint32_t outputUpdateCount = 0;
 uint32_t oldFreeHeap = 0;
 bool spiffsAvailable = false;
 bool displayAvailable = false;
+bool ina219Available = false;
+bool lm75Available = false;
 
 uint32_t inputBoost = 2;
 uint32_t outputDampen = 32;
-uint32_t outputCutoff = 10;
+uint32_t outputCutoff = 3;
 
 fft_config_t *fftc;
 
@@ -169,6 +187,7 @@ TaskHandle_t dspTaskHandle;
 TaskHandle_t adcTaskHandle;
 
 
+// ============================================================================================================================== local_adc1_read()
 // Adapted from the ESP32 IDF SDK's adc_convert() so that it's fixed in IRAM
 int IRAM_ATTR local_adc1_read(int channel) {
     uint16_t adc_value;
@@ -180,7 +199,6 @@ int IRAM_ATTR local_adc1_read(int channel) {
     adc_value = SENS.sar_meas_start1.meas1_data_sar;
     return adc_value;
 }
-
 
 // ============================================================================================================================== onTimer()
 void IRAM_ATTR onTimer() {
@@ -243,6 +261,10 @@ void dspTask(void *param) {
           }
         }
         fftBuf[i] = (ssum / SAMPLES_PER_LINE) / 300;
+      }
+
+      for (int i = 0; i < fftBuf[1] / 2; i++) {
+          Fire2012();
       }
 
       // Draw something into dispLines, depending on the setting
@@ -345,17 +367,27 @@ void drawDisplay() {
     
 #ifdef DEBUG
   //u8g2.setDrawColor(1);
-  if (millis() - startMillis > 1000) {
+  if (millis() - startMillis > 1000 && displayMode == DISPLAY_FFT) {
     char buf[30];
     int seconds = ((millis() - startMillis) / 1000);
     
     sprintf(buf, "F %02d, A %d, O %d, I %d", frameCount / seconds, dspCount / seconds, outputUpdateCount / seconds, currentInputIndex);
     u8g2.drawStr(0, 9, buf);
-    sprintf(buf, "Uptime: %d min.", seconds/60);
+    sprintf(buf, "Up: %d m.", seconds/60);
+    if (lm75Available) {
+      char t[10];
+      sprintf(t, " %0.1f C", lm75.readTemperatureC());
+      strcat(buf, t);
+    }
     if (webServerSetup) {
-      strcat(buf, " [WiFi]");
+      strcat(buf, " [W]");
     }
     u8g2.drawStr(0, 18, buf);
+
+    if (ina219Available) {
+      sprintf(buf, "%3.1f V, %3.1f A", ina219.getBusVoltage_V(), ina219.getCurrent_mA());
+      u8g2.drawStr(0, 27, buf);
+    }
   }
 #endif
   
@@ -373,14 +405,39 @@ inline int32_t fromRawValue(int16_t x) {
 }
 
 // ============================================================================================================================== getFFTslotOutput()
-int16_t getFFTslotOutput(int16_t fslot, int16_t fwidth) {
+int16_t getFFTslotOutput(int16_t fslot, int16_t fwidth, int16_t fslot_op) {
+  uint32_t v;
   int count = 0;
   int sum = 0;
-  for (int16_t j = max(0, fslot - fwidth); j <= min(fslot + fwidth, DISPLAY_WIDTH-1); j++) {
-    sum += fromRawValue(fftBuf[j]);
-    count++;
+
+  switch(fslot_op) {
+    case FSLOT_OP_AVG:
+      for (int16_t j = max(0, fslot - fwidth); j <= min(fslot + fwidth, DISPLAY_WIDTH-1); j++) {
+        sum += fromRawValue(fftBuf[j]);
+        count++;
+      }
+      v = sum / count;
+      break;
+    case FSLOT_OP_MIN:
+      v = INT_MAX;
+      for (int16_t j = max(0, fslot - fwidth); j <= min(fslot + fwidth, DISPLAY_WIDTH-1); j++) {
+        int32_t vv = fromRawValue(fftBuf[j]);
+        if (vv < v) {
+          v = vv;
+        }
+      }
+      break;
+    case FSLOT_OP_MAX:
+      v = 0;
+      for (int16_t j = max(0, fslot - fwidth); j <= min(fslot + fwidth, DISPLAY_WIDTH-1); j++) {
+        int32_t vv = fromRawValue(fftBuf[j]);
+        if (vv > v) {
+          v = vv;
+        }
+      }
+      break;
   }
-  int32_t v = sum / count;
+  
   return min((v*v)/outputDampen, (uint32_t)255);
 }
 
@@ -402,12 +459,12 @@ void updateOutputs() {
       green = outputChannelPins[i].history_g[outputChannelPins[i].history_last_pos] = outputChannelConfigs[i].static_g;
       blue = outputChannelPins[i].history_b[outputChannelPins[i].history_last_pos] = outputChannelConfigs[i].static_b;
     } else if (outputChannelConfigs[i].chan_mode == CHAN_MODE_FFT_RGB) {
-      red = outputChannelPins[i].history_r[outputChannelPins[i].history_last_pos] = getFFTslotOutput(outputChannelConfigs[i].fslot_r, outputChannelConfigs[i].fwidth_r);
-      green = outputChannelPins[i].history_g[outputChannelPins[i].history_last_pos] = getFFTslotOutput(outputChannelConfigs[i].fslot_g, outputChannelConfigs[i].fwidth_g);
-      blue = outputChannelPins[i].history_b[outputChannelPins[i].history_last_pos] = getFFTslotOutput(outputChannelConfigs[i].fslot_b, outputChannelConfigs[i].fwidth_b);
+      red = outputChannelPins[i].history_r[outputChannelPins[i].history_last_pos] = getFFTslotOutput(outputChannelConfigs[i].fslot_r, outputChannelConfigs[i].fwidth_r, outputChannelConfigs[i].fslot_op);
+      green = outputChannelPins[i].history_g[outputChannelPins[i].history_last_pos] = getFFTslotOutput(outputChannelConfigs[i].fslot_g, outputChannelConfigs[i].fwidth_g, outputChannelConfigs[i].fslot_op);
+      blue = outputChannelPins[i].history_b[outputChannelPins[i].history_last_pos] = getFFTslotOutput(outputChannelConfigs[i].fslot_b, outputChannelConfigs[i].fwidth_b, outputChannelConfigs[i].fslot_op);
     } else if (outputChannelConfigs[i].chan_mode == CHAN_MODE_FFT_RGBL) {      
       CRGB c2(outputChannelConfigs[i].rgbl_r, outputChannelConfigs[i].rgbl_g, outputChannelConfigs[i].rgbl_b);
-      c2.fadeToBlackBy(255 - getFFTslotOutput(outputChannelConfigs[i].fslot_r, outputChannelConfigs[i].fwidth_r));
+      c2.fadeToBlackBy(255 - getFFTslotOutput(outputChannelConfigs[i].rgbl_fslot, outputChannelConfigs[i].rgbl_fwidth, outputChannelConfigs[i].fslot_op));
       
       red = outputChannelPins[i].history_r[outputChannelPins[i].history_last_pos] = c2.red;
       green = outputChannelPins[i].history_g[outputChannelPins[i].history_last_pos] = c2.green;
@@ -489,7 +546,8 @@ void setup() {
   Serial.println(ESP.getSketchMD5());
 
   Wire.begin();
-  Wire.setClock(800000);
+  Wire.setClock(100000);
+  scanI2C();
   
   if(!SPIFFS.begin(true)){
     Serial.println("An Error has occurred while mounting SPIFFS");
@@ -508,6 +566,15 @@ void setup() {
     //u8g2.setFontMode(1);
     u8g2.clearBuffer();
   }
+
+  Wire.setClock(100000);
+  ina219Available = isI2Cdevice(INA219_I2C_ADDRESS);
+  if (ina219Available) {
+    ina219.begin();
+    ina219.setCalibration_32V_2A();
+  }
+
+  lm75Available = isI2Cdevice(LM75_I2C_ADDRESS);
 
   pinMode(2, OUTPUT);
   digitalWrite(2, LOW);
@@ -536,16 +603,28 @@ void setup() {
   }
 
   loadChannelConfig();
-  
+
+  /*
   if (digitalRead(PIN_SW1) == LOW) {
     delay(500);
     if (digitalRead(PIN_SW1) == LOW) {
       setupWiFi();
+      if (displayAvailable) {
+        u8g2.drawStr(0, 30, "Turning WiFi on...");
+        u8g2.sendBuffer();
+      }
       digitalWrite(2, HIGH);
       delay(2000);
       digitalWrite(2, LOW);
       delay(1000);
     }
+  }*/
+  if (digitalRead(PIN_SW1) != LOW) {
+    if (displayAvailable) {
+      u8g2.drawStr(0, 30, "Turning WiFi on...");
+      u8g2.sendBuffer();
+    }
+    setupWiFi();
   }
 
   adc1_config_width(ADC_WIDTH_12Bit);
@@ -565,6 +644,10 @@ void setup() {
   timerAlarmWrite(adcTimer, 45, true);
   timerAlarmEnable(adcTimer);
   Serial.println("4");
+
+  pinMode(PIN_WS2812, OUTPUT);
+  FastLED.addLeds<WS2812B, PIN_WS2812, GRB>(ws2812, N_WS2812_LEDS);
+  FastLED.setBrightness(200);
 
   startMillis = lastBlink = millis();
   Serial.println("setup over");
@@ -594,6 +677,8 @@ void loop() {
     drawDisplay();
     dbufReady = false;
   }
+
+  FastLED.show();
 
   loopCount++;
 }

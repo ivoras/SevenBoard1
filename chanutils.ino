@@ -24,6 +24,7 @@ void serializeOutputChannels(JsonObject &root) {
     output["chan_mode"] = outputChannelConfigs[i].chan_mode;
     output["show_lines"] = outputChannelConfigs[i].show_lines;
     output["history_filter"] = outputChannelConfigs[i].history_filter;
+    output["fslot_op"] = outputChannelConfigs[i].fslot_op;
     
     output["fslot_r"] = outputChannelConfigs[i].fslot_r;
     output["fslot_g"] = outputChannelConfigs[i].fslot_g;
@@ -54,6 +55,7 @@ void deserializeOutputChannels(JsonDocument &doc, struct output_channel_config_t
     channels[i].chan_mode = outputs[n]["chan_mode"];
     channels[i].show_lines = outputs[n]["show_lines"];
     channels[i].history_filter = outputs[n]["history_filter"];
+    channels[i].fslot_op = outputs[n]["fslot_op"];
 
     channels[i].fslot_r = outputs[n]["fslot_r"];
     channels[i].fslot_g = outputs[n]["fslot_g"];
