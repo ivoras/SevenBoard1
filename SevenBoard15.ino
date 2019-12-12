@@ -12,6 +12,7 @@
 #include <driver/adc.h>
 #include <soc/sens_reg.h>
 #include <soc/sens_struct.h>
+#include <esp_system.h>
 #include <ArduinoJson.h>
 #include <U8g2lib.h>
 #include <SPIFFS.h>
@@ -26,10 +27,13 @@
 
 #define DEBUG
 
-const String SYSTEM_VERSION = "1.3.5";
+const String SYSTEM_VERSION = "1.5.0";
 
-const char* wifiSSID = "SEVENBOARD1";
-const char* wifiPassword = "grillaj0";
+const char *wifiSSIDPrefix = "SEVENBOARD_";
+const char *wifiPasswordPrefix = "grillaj";
+
+String wifiSSID;
+String wifiPassword;
 
 #define OLED_I2C_ADDRESS 0x3c
 U8G2_SSD1306_128X64_NONAME_F_HW_I2C u8g2(U8G2_R0, /* reset=*/ U8X8_PIN_NONE);
@@ -308,8 +312,8 @@ void drawDisplay() {
 
   if (configMode) {
     u8g2.drawStr(0, 10, "WiFi config enabled");
-    u8g2.drawStr(0, 20, wifiSSID);
-    u8g2.drawStr(0, 30, wifiPassword);
+    u8g2.drawStr(0, 20, wifiSSID.c_str());
+    u8g2.drawStr(0, 30, wifiPassword.c_str());
 
     if (configModeMessage != String("")) {
       u8g2.drawStr(0, 60, configModeMessage.c_str());
@@ -394,14 +398,13 @@ void drawDisplay() {
     }
   }
 #endif
-  
   u8g2.sendBuffer();
   frameCount++;
 }
 
 
 // ============================================================================================================================== fromRawValue()
-inline int32_t fromRawValue(int16_t x) {
+inline int32_t fromRawValue(int32_t x) {
   if (x > outputCutoff) {
     return int32_t(x) /** inputBoost*/;
   }
@@ -548,6 +551,16 @@ void setup() {
   Serial.print(ESP.getCpuFreqMHz());
   Serial.print(" MHz, firmware signature: ");
   Serial.println(ESP.getSketchMD5());
+
+  uint8_t esp32RawMac[6];
+  esp_read_mac(esp32RawMac, ESP_MAC_WIFI_SOFTAP);
+  String b32Mac = b32str(esp32RawMac, 6, false);
+  wifiSSID = String((char*)wifiSSIDPrefix) + b32Mac.substring(b32Mac.length()-3);
+  Serial.print("WiFi SSID: ");
+  Serial.println(wifiSSID);
+  wifiPassword = String((char*)wifiPasswordPrefix) + b32Mac.substring(b32Mac.length()-6, b32Mac.length()-4);
+  Serial.print("WiFi password: ");
+  Serial.println(wifiPassword);
 
   Wire.begin();
   Wire.setClock(100000);

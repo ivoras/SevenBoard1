@@ -22,7 +22,7 @@ void setupWiFi() {
   delay(1);
   WiFi.softAPConfig(apIP, apIP, IPAddress(255, 255, 255, 0));
   delay(1);
-  WiFi.softAP(wifiSSID, wifiPassword);
+  WiFi.softAP(wifiSSID.c_str(), wifiPassword.c_str());
   Serial.print("AP IP: ");
   Serial.println(WiFi.softAPIP());
 
