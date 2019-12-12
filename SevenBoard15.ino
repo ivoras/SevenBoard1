@@ -74,6 +74,7 @@ CRGB ws2812[N_WS2812_LEDS];
 #define FSLOT_OP_AVG 0
 #define FSLOT_OP_MIN 1
 #define FSLOT_OP_MAX 2
+#define FSLOT_OP_GEO 3
 
 struct input_channel_t {
   adc1_channel_t  chan;
@@ -149,7 +150,7 @@ struct output_channel_config_t {
   uint8_t rgbl_b;
   uint8_t rgbl_fslot;
   uint8_t rgbl_fwidth;
-  uint8_t fslot_damp;
+  uint16_t fslot_damp;
 };
 
 struct output_channel_config_t outputChannelConfigs[N_OUTPUT_CHANNELS] = {
@@ -369,7 +370,6 @@ void drawDisplay() {
         u8g2.drawVLine(col++, DISPLAY_HEIGHT-1-(blue), DISPLAY_HEIGHT-1);
       }
       col += bar_width / 2 + 3;
-      
     }
   }
     
@@ -443,6 +443,23 @@ int16_t getFFTslotOutput(int16_t fslot, int16_t fwidth, int16_t fslot_op, uint32
         }
       }
       break;
+    case FSLOT_OP_GEO:
+      // Geometric mean
+      sum = 0;
+      bool first = true;
+      for (int16_t j = max(0, fslot - fwidth); j <= min(fslot + fwidth, DISPLAY_WIDTH-1); j++) {
+        int32_t vv = fromRawValue(fftSlot[j]);
+        if (first) {
+          v = vv;
+          first = false;
+        } else {
+          v *= vv;
+        }
+        sum++;
+      }
+      v = uint32_t(pow(v, 1.0/sum));
+      break;
+      
   }
   
   return min((v*v)/(outputDampen + fslot_damp), (uint32_t)255);

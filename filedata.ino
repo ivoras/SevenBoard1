@@ -45,12 +45,14 @@ const char *index_html =
       "<div><label><input type='checkbox' data-bind='checked: show_lines'> Show freq. lines</label></div>"
       "<div><label><input type='radio' data-bind=\"checked: fslot_op, attr: { name: 'fop' + $index() }\" value='0'> AVG</label> | "
            "<label><input type='radio' data-bind=\"checked: fslot_op, attr: { name: 'fop' + $index() }\" value='1'> MIN</label> | "
-           "<label><input type='radio' data-bind=\"checked: fslot_op, attr: { name: 'fop' + $index() }\" value='2'> MAX</label></div>"
+           "<label><input type='radio' data-bind=\"checked: fslot_op, attr: { name: 'fop' + $index() }\" value='2'> MAX</label> | "
+           "<label><input type='radio' data-bind=\"checked: fslot_op, attr: { name: 'fop' + $index() }\" value='3'> GEO</label>"
+           "</div>"
       //"<div>Type: <span data-bind='text: chan_mode'></span></div>"
     "</div>\n"
 
     "<div>"
-      "<span style='display: inline-block; width: 12em'>Damping [0-255]: <span data-bind='text: fslot_damp'></span></span><input type='range' style='width: 18em' step='1' min='0' max='255' data-bind='value: fslot_damp'/><br>"
+      "<span style='display: inline-block; width: 12em'>Damping [0-1000]: <span data-bind='text: fslot_damp'></span></span><input type='range' style='width: 18em' step='1' min='0' max='1000' data-bind='value: fslot_damp'/><br>"
     "</div>"
     
     "<div>"
