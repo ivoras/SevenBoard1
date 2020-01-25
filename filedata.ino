@@ -12,6 +12,7 @@ const char *index_html =
   "<script type='text/javascript' src='/knockout.mapping.js'></script>"
 "</head>\n"
 "<body>\n"
+
   "<section class='section'>"
     "<div class='container'>"
       "<h1 class='title'>Magic board</h1>"
@@ -20,17 +21,35 @@ const char *index_html =
       "<div style='text-align: center; padding-top: 5px; padding-bottom: 15px'>"
         "<a class='button is-primary' style='width: 10em' onclick='saveOutputs()'>Save</a>"
       "</div>"
-      
-      "<div>Input boost [1-50]: <span data-bind='text: inputBoost'></span><br>"
-      "<input type='range' style='width: 20em' step='1' min='1' max='50' data-bind='value: inputBoost'/></div>"
-
-      "<div>Output damping [1-4000]: <span data-bind='text: outputDampen'></span><br>"
-      "<input type='range' style='width: 20em' step='1' min='1' max='4000' data-bind='value: outputDampen'/></div>"
-
-      "<div>Output cutoff [1-20]: <span data-bind='text: outputCutoff'></span><br>"
-      "<input type='range' style='width: 20em' step='1' min='1' max='20' data-bind='value: outputCutoff'/></div>"
-    "</div>"
+    "</div>" 
   "</section>\n"
+      
+  "<div class='tabs is-centered is-boxed is-small'>"
+    "<ul>"
+       "<li id='ttabG' class='is-active'>"
+         "<a onclick='javascript:switchTab(\"tabG\")'>Global</a>"
+       "</li>"
+       "<!-- ko foreach: outputsAux() -->"
+         "<li data-bind='attr: {id: \"ttabCh\" + $index()}'>"
+           "<a data-bind='attr: {href: tabUrl}'>Ch <span data-bind='text: ($index() + 1)'></a>"
+         "</li>"     
+       "<!-- /ko -->"
+     "</ul>"
+  "</div>\n"
+
+
+  "<div id='tabG' style='margin-left: 2em'>"
+
+    "<div>Input boost [1-50]: <span data-bind='text: inputBoost'></span><br>"
+    "<input type='range' style='width: 20em' step='1' min='1' max='50' data-bind='value: inputBoost'/></div>"
+  
+    "<div>Output damping [1-4000]: <span data-bind='text: outputDampen'></span><br>"
+    "<input type='range' style='width: 20em' step='1' min='1' max='4000' data-bind='value: outputDampen'/></div>"
+  
+    "<div>Output cutoff [1-20]: <span data-bind='text: outputCutoff'></span><br>"
+    "<input type='range' style='width: 20em' step='1' min='1' max='20' data-bind='value: outputCutoff'/></div>"
+
+  "</div>"
   
   //"<hr>\n"
   //"<br>\n"
@@ -38,7 +57,9 @@ const char *index_html =
 
   "<div data-bind='foreach: outputs()'>\n"
 
-    "<h1 class='title' style='background: silver'>Channel <span data-bind='text: ($index() + 1)'></span></h1>\n"
+   "<div data-bind='attr: { id: \"tabCh\" + $index() }'>"
+
+    //"<h1 class='title' style='background: silver'>Channel <span data-bind='text: ($index() + 1)'></span></h1>\n"
 
     "<div>"
       "<div><label><input type='checkbox' data-bind='checked: history_filter'> Blur filter</label></div>"
@@ -91,18 +112,30 @@ const char *index_html =
       "</div>"
     "</div>\n"
 
-  "<hr>"
-  "</div>\n"
+   "<hr>"
+   "</div>" // id
+   "</div>\n"
     
     "<p><strong>R, G, B</strong> are frequency channels, ranging from 0-127. <strong>Rw, Gb, Bw</strong> are frequency band widths, ranging from 0-15.</p>"
     "<p>System uptime: <span data-bind='text: upMinutes'>x</span> minutes.</p>"
-    "<a class='button is-primary' onclick='saveOutputs()'>Save</a>"
+    
+    "<div style='text-align: center; padding-top: 5px; padding-bottom: 15px'>"
+      "<a class='button is-primary' style='width: 10em' onclick='saveOutputs()'>Save</a>"
+    "</div>"
   "</section>\n"
 
   "<script>\n"
 
   "function newDataModel() {"
-    "var dataModel = { 'sysVersion': ko.observable(0), 'inputBoost': ko.observable(0), 'outputDampen': ko.observable(0), 'outputCutoff': ko.observable(0), 'outputs': ko.observableArray([]), 'millis': ko.observable(0) };"
+    "var dataModel = { "
+      "'sysVersion': ko.observable(0), "
+      "'inputBoost': ko.observable(0), "
+      "'outputDampen': ko.observable(0), "
+      "'outputCutoff': ko.observable(0), "
+      "'outputs': ko.observableArray([]), "
+      "'outputsAux': ko.observableArray([]), "
+      "'millis': ko.observable(0) "
+    "};\n"
     "dataModel.upMinutes = ko.computed(function() { return Math.round(dataModel.millis() / 1000 / 60); }, dataModel);"
     "return dataModel;"
   "}\n"
@@ -124,14 +157,16 @@ const char *index_html =
       "dataModel.sysVersion(resp.sysVersion);"
       "dataModel.inputBoost(resp.inputBoost);"
       "dataModel.outputDampen(resp.outputDampen);"
-      "dataModel.outputCutoff(resp.outputCutoff);"
+      "dataModel.outputCutoff(resp.outputCutoff);\n"
       "for (var i = 0; i < dataModel.outputs()().length; i++) {"
         "var m = dataModel.outputs()()[i].chan_mode();"
         "dataModel.outputs()()[i].chan_mode(m.toString(10));"
         "m = dataModel.outputs()()[i].fslot_op();"
         "dataModel.outputs()()[i].fslot_op(m.toString(10));"
+        "dataModel.outputsAux.push({'tabUrl': 'javascript:switchTab(\"tabCh\"+' + i + ')'});"
       "}"
-    "};"
+      "switchTab('tabG');"
+    "};\n"
     "xhr.send();"
   "}\n"
 
@@ -146,7 +181,21 @@ const char *index_html =
     "};"
     "xhr.send(JSON.stringify({'outputs': ko.mapping.toJS(dataModel.outputs()), 'inputBoost': dataModel.inputBoost(), 'outputDampen': dataModel.outputDampen(), 'outputCutoff': dataModel.outputCutoff()}));"
     "alert('Saved!');"
-  "}\n"
+  "}\n\n"
+
+  "function switchTab(t) {"
+    "document.getElementById('tabG').style.display = 'none';"
+    "document.getElementById('ttabG').className = '';"
+    "console.log('len=' + dataModel.outputsAux().length);"
+    "for (var i = 0; i < dataModel.outputsAux().length; i++) {"
+      "var xname = 'tabCh' + i;"
+      "console.log('id=' + xname);"
+      "document.getElementById(xname).style.display = 'none';"
+      "document.getElementById('t' + xname).className = '';"
+    "}"
+    "document.getElementById(t).style.display = 'block';"
+    "document.getElementById('t' + t).className = 'is-active';"
+  "}\n\n"
   
   "getOutputs();"
   "</script>"

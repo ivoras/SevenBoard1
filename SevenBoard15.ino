@@ -599,10 +599,12 @@ void setup() {
     u8g2.clearBuffer();
 
     u8g2.drawStr(0, 9, "WiFi SSID:");
-    u8g2.drawStr(0, 18, wifiSSID);
-    u8g2.drawStr(0, 27, "WiFi password:");
-    u8g2.drawStr(0, 36, wifiPassword);
-    delay(500);
+    u8g2.drawStr(0, 18, wifiSSID.c_str());
+    u8g2.drawStr(0, 36, "WiFi password:");
+    u8g2.drawStr(0, 45, wifiPassword.c_str());
+    u8g2.sendBuffer();
+    
+    delay(2500);
   }
   
   fftc = fft_init(ADC_SAMPLES_COUNT, FFT_REAL, FFT_FORWARD, NULL, NULL);
@@ -661,7 +663,7 @@ void setup() {
   }*/
   if (digitalRead(PIN_SW1) != LOW) {
     if (displayAvailable) {
-      u8g2.drawStr(0, 30, "Turning WiFi on...");
+      u8g2.drawStr(0, 55, "Turning WiFi on...");
       u8g2.sendBuffer();
     }
     setupWiFi();
