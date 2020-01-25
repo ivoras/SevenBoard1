@@ -154,11 +154,11 @@ struct output_channel_config_t {
 };
 
 struct output_channel_config_t outputChannelConfigs[N_OUTPUT_CHANNELS] = {
-  { chan_mode: CHAN_MODE_FFT_RGB, fslot_r: 6, fslot_g: 45, fslot_b: 60, fslot_op: FSLOT_OP_AVG, show_lines: true,  history_filter: true, fwidth_r: 2, fwidth_g: 5, fwidth_b: 10 },
-  { chan_mode: CHAN_MODE_FFT_RGB, fslot_r: 6, fslot_g: 45, fslot_b: 60, fslot_op: FSLOT_OP_AVG, show_lines: false, history_filter: true, fwidth_r: 2, fwidth_g: 5, fwidth_b: 10 },
-  { chan_mode: CHAN_MODE_FFT_RGB, fslot_r: 6, fslot_g: 45, fslot_b: 60, fslot_op: FSLOT_OP_AVG, show_lines: false, history_filter: true, fwidth_r: 2, fwidth_g: 5, fwidth_b: 10 },
-  { chan_mode: CHAN_MODE_FFT_RGB, fslot_r: 6, fslot_g: 45, fslot_b: 60, fslot_op: FSLOT_OP_AVG, show_lines: false, history_filter: true, fwidth_r: 2, fwidth_g: 5, fwidth_b: 10 },
-  { chan_mode: CHAN_MODE_FFT_RGB, fslot_r: 6, fslot_g: 45, fslot_b: 60, fslot_op: FSLOT_OP_AVG, show_lines: false, history_filter: true, fwidth_r: 2, fwidth_g: 5, fwidth_b: 10 },
+  { chan_mode: CHAN_MODE_FFT_RGB, fslot_r: 1, fslot_g: 25, fslot_b: 40, fslot_op: FSLOT_OP_AVG, show_lines: true,  history_filter: true, fwidth_r: 1, fwidth_g: 5, fwidth_b: 10 },
+  { chan_mode: CHAN_MODE_FFT_RGB, fslot_r: 1, fslot_g: 25, fslot_b: 40, fslot_op: FSLOT_OP_AVG, show_lines: false, history_filter: true, fwidth_r: 1, fwidth_g: 5, fwidth_b: 10 },
+  { chan_mode: CHAN_MODE_FFT_RGB, fslot_r: 1, fslot_g: 25, fslot_b: 40, fslot_op: FSLOT_OP_AVG, show_lines: false, history_filter: true, fwidth_r: 1, fwidth_g: 5, fwidth_b: 10 },
+  { chan_mode: CHAN_MODE_FFT_RGB, fslot_r: 1, fslot_g: 25, fslot_b: 40, fslot_op: FSLOT_OP_AVG, show_lines: false, history_filter: true, fwidth_r: 1, fwidth_g: 5, fwidth_b: 10 },
+  { chan_mode: CHAN_MODE_FFT_RGB, fslot_r: 1, fslot_g: 25, fslot_b: 40, fslot_op: FSLOT_OP_AVG, show_lines: false, history_filter: true, fwidth_r: 1, fwidth_g: 5, fwidth_b: 10 },
 };
 
 uint32_t lastBlink = 0;
@@ -590,8 +590,6 @@ void setup() {
     spiffsAvailable = true;
   }
 
-  fftc = fft_init(ADC_SAMPLES_COUNT, FFT_REAL, FFT_FORWARD, NULL, NULL);
-
   displayAvailable = isI2Cdevice(OLED_I2C_ADDRESS);
   if (displayAvailable) {
     u8g2.setBusClock(800000);  
@@ -599,7 +597,15 @@ void setup() {
     u8g2.setFont(u8g2_font_t0_11b_mr);
     //u8g2.setFontMode(1);
     u8g2.clearBuffer();
+
+    u8g2.drawStr(0, 9, "WiFi SSID:");
+    u8g2.drawStr(0, 18, wifiSSID);
+    u8g2.drawStr(0, 27, "WiFi password:");
+    u8g2.drawStr(0, 36, wifiPassword);
+    delay(500);
   }
+  
+  fftc = fft_init(ADC_SAMPLES_COUNT, FFT_REAL, FFT_FORWARD, NULL, NULL);
 
   Wire.setClock(100000);
   ina219Available = isI2Cdevice(INA219_I2C_ADDRESS);
